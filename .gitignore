@@ -1,0 +1,73 @@
+# ==========================
+# Node / NPM
+# ==========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+
+# ==========================
+# Vite / Build
+# ==========================
+dist/
+build/
+out/
+.vite/
+.cache/
+.temp/
+
+# ==========================
+# Electron
+# ==========================
+# Electron 打包输出
+release/
+dist_electron/
+*.asar
+
+# ==========================
+# OS & IDE
+# ==========================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# ==========================
+# VSCode / JetBrains
+# ==========================
+.vscode/
+.idea/
+
+# ==========================
+# Logs / Temp files
+# ==========================
+logs/
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# ==========================
+# Test / Coverage
+# ==========================
+coverage/
+*.lcov
+
+# ==========================
+# Environment / Secrets
+# ==========================
+.env
+.env.local
+.env.*.local
+
+# ==========================
+# Misc
+# ==========================
+*.swp
+*.swo
+*.bak
+*.tmp
+
+.devtools*

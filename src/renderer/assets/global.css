@@ -1,0 +1,190 @@
+/**
+ * 全局样式文件
+ * 定义应用的基础样式、重置样式和通用组件样式
+ */
+:root {
+    /* 标题栏背景色 */
+    --titlebar-bg-color: #303133;
+
+    /* 菜单背景色 */
+    --el-menu-bg-color: #1d1e1f !important;
+    --el-menu-text-color: #cccccc !important;
+    --el-menu-hover-bg-color: color-mix(in srgb, var(--el-color-primary) 10%, transparent) !important;
+}
+
+/* ==================== 全局重置样式 ==================== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+body {
+    font-family: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+}
+
+.no-select {
+    /* 禁止鼠标选中 */
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+}
+
+/* ==================== El-menu 样式重写 ==================== */
+.el-menu.el-menu--popup {
+    max-width: 250px;
+    width: 250px;
+}
+
+/* ==================== El-drawer 样式 ==================== */
+.el-drawer__header {
+    margin-bottom: 0 !important;
+    padding-bottom: 20px !important;
+}
+
+.el-drawer__body {
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+/* ==================== 暗黑模式 ==================== */
+html.dark {
+    /* 暗黑模式，box阴影，如drawer的阴影 */
+    --el-box-shadow-dark: 0px 12px 32px 4px rgba(0, 0, 0, 0.36), 0px 8px 20px rgba(0, 0, 0, 0.72) !important;
+    /* 暗黑模式，背景色 */
+    --el-bg-color: #202020 !important;
+}
+
+/* ==================== 科技蓝 ==================== */
+html.blue {
+    --el-color-primary: #1E88E5;
+    --el-color-primary-light-3: #64b5f6;
+    --el-color-primary-light-5: #90caf9;
+    --el-color-primary-light-7: #bbdefb;
+    --el-color-primary-light-8: #e3f2fd;
+    --el-color-primary-light-9: #f3f9fe;
+    --el-color-primary-dark-2: #1976d2;
+}
+
+html.blue.dark {
+    --el-color-primary-light-8: #1d3043;
+    --el-color-primary-light-9: #1e2635;
+}
+
+/* ==================== 商务紫 ==================== */
+html.purple {
+    --el-color-primary: #673AB7;
+    --el-color-primary-light-3: #9575cd;
+    --el-color-primary-light-5: #b39ddb;
+    --el-color-primary-light-7: #d1c4e9;
+    --el-color-primary-light-8: #ede7f6;
+    --el-color-primary-light-9: #f8f5fd;
+    --el-color-primary-dark-2: #5e35b1;
+}
+
+html.purple.dark {
+    --el-color-primary-light-8: #2d1f3d;
+    --el-color-primary-light-9: #221a2d;
+}
+
+/* ==================== 活力橙 ==================== */
+html.orange {
+    --el-color-primary: #FF9800;
+    --el-color-primary-light-3: #ffb74d;
+    --el-color-primary-light-5: #ffcc80;
+    --el-color-primary-light-7: #ffe0b2;
+    --el-color-primary-light-8: #fff3e0;
+    --el-color-primary-light-9: #fffaf2;
+    --el-color-primary-dark-2: #f57c00;
+}
+
+html.orange.dark {
+    --el-color-primary-light-8: #3d2f1d;
+    --el-color-primary-light-9: #332a1d;
+}
+
+/* ==================== 清新绿 ==================== */
+html.green {
+    --el-color-primary: #4CAF50;
+    --el-color-primary-light-3: #81c784;
+    --el-color-primary-light-5: #a5d6a7;
+    --el-color-primary-light-7: #c8e6c9;
+    --el-color-primary-light-8: #e8f5e8;
+    --el-color-primary-light-9: #f4fbf4;
+    --el-color-primary-dark-2: #43a047;
+}
+
+html.green.dark {
+    --el-color-primary-light-8: #1d3020;
+    --el-color-primary-light-9: #1e2820;
+}
+
+/* ==================== 优雅粉 ==================== */
+html.pink {
+    --el-color-primary: #E91E63;
+    --el-color-primary-light-3: #f06292;
+    --el-color-primary-light-5: #f48fb1;
+    --el-color-primary-light-7: #f8bbd0;
+    --el-color-primary-light-8: #fce4ec;
+    --el-color-primary-light-9: #fef6f9;
+    --el-color-primary-dark-2: #d81b60;
+}
+
+html.pink.dark {
+    --el-color-primary-light-8: #3d1f2d;
+    --el-color-primary-light-9: #2d1f2d;
+}
+
+/* ==================== 商务黑 ==================== */
+html.business {
+    --el-color-primary: #2C3E50;
+    --el-color-primary-light-3: #5d6d7e;
+    --el-color-primary-light-5: #85929e;
+    --el-color-primary-light-7: #d0d3d4;
+    --el-color-primary-light-8: #eaecee;
+    --el-color-primary-light-9: #f4f6f7;
+    --el-color-primary-dark-2: #273746;
+}
+
+html.business.dark {
+    --el-color-primary-light-8: #1a2329;
+    --el-color-primary-light-9: #131a21;
+}
+
+/* ==================== 靛青蓝 ==================== */
+html.cyan {
+    --el-color-primary: #00BCD4;
+    --el-color-primary-light-3: #62c7c1;
+    --el-color-primary-light-5: #87d7d3;
+    --el-color-primary-light-7: #b0e0dc;
+    --el-color-primary-light-8: #d9f2ef;
+    --el-color-primary-light-9: #eef9f8;
+    --el-color-primary-dark-2: #0097a7;
+}
+
+html.cyan.dark {
+    --el-color-primary-light-8: #1a3537;
+    --el-color-primary-light-9: #132526;
+}
+
+/* ====================  咖啡棕 ==================== */
+html.brown {
+    --el-color-primary: #8B4513;
+    --el-color-primary-light-3: #b08968;
+    --el-color-primary-light-5: #c8a38a;
+    --el-color-primary-light-7: #d0b7a0;
+    --el-color-primary-light-8: #e8d7c8;
+    --el-color-primary-light-9: #f4e8dd;
+    --el-color-primary-dark-2: #7d3f19;
+}
+
+html.brown.dark {
+    --el-color-primary-light-8: #3d2f1d;
+    --el-color-primary-light-9: #332a1d;
+}
