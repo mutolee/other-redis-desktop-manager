@@ -3,14 +3,20 @@
     描述：重命名分组的对话框
  -->
 <script setup>
-import {computed, ref, watch} from "vue";
-import {ElMessage} from "element-plus";
-import {useBaseStateStore} from "../../stores/modules/baseStateStore.js";
-import {storeToRefs} from "pinia";
-import {eventBus} from "../../utils/eventBus.js";
-import {connectConfigRepository} from "../../database/repositories/ConnectConfigRepository.js";
+import { computed, ref, watch } from 'vue'
+import { Edit } from '@icon-park/vue-next'
+import { ElMessage } from 'element-plus'
+import { storeToRefs } from 'pinia'
+import { connectConfigRepository } from '../../database/repositories/ConnectConfigRepository.js'
+import { eventBus } from '../../utils/eventBus.js'
+import { useBaseStateStore } from '../../stores/modules/baseStateStore.js'
+import DialogTitle from '../common/DialogTitle.vue'
+import { useI18n } from '../../i18n/index.js'
 
-// Props
+// 国际化文案读取函数：驱动重命名分组弹窗表单、校验和操作反馈。
+const { t } = useI18n()
+
+// 组件入参：控制弹窗显示，并传入当前要重命名的分组名称。
 const props = defineProps({
     visible: {
         type: Boolean
@@ -21,10 +27,10 @@ const props = defineProps({
     }
 })
 
-// Emits
+// 对外事件：同步弹窗显示状态，并在关闭后通知父组件清理重命名目标。
 const emit = defineEmits(['update:visible', 'closed'])
 
-// 计算属性
+// 弹窗可见性代理：透传 v-model:visible 给父组件。
 const dialogVisible = computed({
     get: () => props.visible,
     // update:visible 是一个特殊的 Vue 约定写法，用于实现自定义组件的双向绑定
@@ -32,16 +38,17 @@ const dialogVisible = computed({
     set: value => emit('update:visible', value)
 })
 
-// 响应式数据
-const formRef = ref(null) // 表单引用
-const newGroupName = ref('') // 新分组名称
-const {searchModeState} = storeToRefs(useBaseStateStore())
+// 表单状态：新分组名称和 Element Plus 表单实例。
+const formRef = ref(null)
+const newGroupName = ref('')
+// 基础状态 store：重命名成功后根据搜索模式决定刷新搜索结果还是全量连接列表。
+const { searchModeState } = storeToRefs(useBaseStateStore())
 
 // 表单验证规则
 const formRules = {
     newGroupName: [
-        {required: true, message: '请输入分组名称', trigger: 'blur'},
-        {min: 1, max: 50, message: '分组名称长度在 1 到 25 个字符', trigger: 'blur'}
+        {required: true, message: t('dialogs.renameGroup.validation.nameRequired'), trigger: 'blur'},
+        {min: 1, max: 50, message: t('dialogs.renameGroup.validation.nameLength'), trigger: 'blur'}
     ]
 }
 
@@ -74,20 +81,20 @@ const handleSubmit = async () => {
 
         // 检查新名称是否与旧名称相同
         if (oldGroupName === trimmedNewName) {
-            ElMessage.warning('新分组名称与当前名称相同')
+            ElMessage.warning(t('dialogs.renameGroup.messages.sameName'))
             return
         }
 
         // 检查新分组名称是否已存在
         const allGroups = await connectConfigRepository.findAllGroups()
         if (allGroups.includes(trimmedNewName)) {
-            ElMessage.warning(`分组名称 "${trimmedNewName}" 已存在`)
+            ElMessage.warning(t('dialogs.renameGroup.messages.nameExists', { value: trimmedNewName }))
             return
         }
 
         // 调用更新分组名称接口
         const updatedCount = await connectConfigRepository.updateGroupName(oldGroupName, trimmedNewName)
-        ElMessage.success(`分组重命名成功，已更新 ${updatedCount} 个连接配置`)
+        ElMessage.success(t('dialogs.renameGroup.messages.renameSuccess', { value: updatedCount }))
 
         // 如果是搜索模式，刷新搜索结果，否则重新加载连接配置列表
         if (searchModeState.value) {
@@ -102,8 +109,9 @@ const handleSubmit = async () => {
             // 表单验证失败
             return
         }
-        console.error('重命名分组失败:', error)
-        ElMessage.error('重命名分组失败: ' + (error.message || '未知错误'))
+        ElMessage.error(t('dialogs.renameGroup.messages.renameFail', {
+            value: error.message || t('common.unknownError')
+        }))
     }
 }
 
@@ -130,22 +138,27 @@ const handleCancel = () => {
 </script>
 
 <template>
-    <el-dialog v-model="dialogVisible" title="重命名分组" width="500px"
+    <el-dialog v-model="dialogVisible" width="500px"
                :close-on-click-modal="false"
                :close-on-press-escape="false"
                @close="handleCancel">
+        <template #header>
+            <!-- 弹窗标题：重命名分组使用编辑图标，和分组名称修改语义一致。 -->
+            <DialogTitle :icon="Edit" :title="t('dialogs.renameGroup.title')" />
+        </template>
+
         <el-form ref="formRef" :model="{newGroupName}" :rules="formRules" label-width="100px" label-position="right">
-            <el-form-item label="当前名称">
+            <el-form-item :label="t('dialogs.renameGroup.currentName')">
                 <el-input
                     :value="groupName"
                     disabled
                     style="width: 100%"
                 />
             </el-form-item>
-            <el-form-item label="新名称" prop="newGroupName">
+            <el-form-item :label="t('dialogs.renameGroup.newName')" prop="newGroupName">
                 <el-input
                     v-model="newGroupName"
-                    placeholder="请输入新的分组名称"
+                    :placeholder="t('dialogs.renameGroup.newNamePlaceholder')"
                     clearable
                     maxlength="25"
                     style="width: 100%"
@@ -155,8 +168,8 @@ const handleCancel = () => {
         </el-form>
         <template #footer>
             <div class="dialog-footer">
-                <el-button @click="handleCancel">取消</el-button>
-                <el-button type="primary" @click="handleSubmit">确定</el-button>
+                <el-button @click="handleCancel">{{ t('common.cancel') }}</el-button>
+                <el-button type="primary" @click="handleSubmit">{{ t('common.confirm') }}</el-button>
             </div>
         </template>
     </el-dialog>

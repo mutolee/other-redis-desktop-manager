@@ -1,100 +1,98 @@
 /**
- * 启动窗口
+ * Electron 启动窗口管理模块。
+ * 负责展示启动页，并在短暂过渡后关闭启动窗口、创建主业务窗口。
  */
-import {BrowserWindow} from "electron";
-import path from "path";
-import {fileURLToPath} from "url";
-import {createMainWindow} from "./mainWindow.js";
+import electron from 'electron'
+import { createSecureWebPreferences, loadRendererRoute } from '../managers/WindowsManager.js'
+import { createMainWindow } from './mainWindow.js'
+import { createLogger } from '../utils/logger.js'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const { BrowserWindow } = electron
+const log = createLogger('splash-window')
 
 /**
- * 启动窗口管理类
- * 负责显示应用启动画面，在加载完成后自动关闭并启动主窗口
+ * 生成启动屏展示时长。
+ * 保留随机延迟，让启动页过渡更自然，同时避免停留时间过短导致闪屏。
+ *
+ * @returns {number} 启动屏停留毫秒数
+ */
+const getSplashDelay = () => Math.floor(Math.random() * 3000) + 2000
+
+/**
+ * 启动窗口管理类。
+ * 只负责启动页生命周期，不直接管理主窗口内部行为。
  */
 class SplashWindow {
     constructor() {
-        this.win = null;
-        this.createWindow();
+        // 启动窗口 BrowserWindow 实例：创建主窗口后会主动关闭。
+        this.win = null
+        this.createWindow()
     }
 
     /**
-     * 创建启动窗口
-     * 设置无边框、透明背景的模态窗口样式
+     * 创建启动窗口。
+     * 使用透明、置顶、不可缩放窗口，配合渲染进程启动页形成独立启动画面。
      */
     createWindow() {
         this.win = new BrowserWindow({
             width: 500,
             height: 500,
-            frame: false,          // 无边框
-            transparent: true,     // 透明背景
-            alwaysOnTop: true,     // 窗体层级置顶
-            resizable: false,      // 不可调整大小
-            center: true,          // 居中显示
-            webPreferences: {
-                contextIsolation: true,      // 启用上下文隔离，防止注入攻击，提高安全性
-                nodeIntegration: false,      // 禁用 Node.js 集成，避免注入攻击，提高安全性
-                webSecurity: true,           // 启用 Web 安全，防止跨域攻击，提高安全性
-                allowRunningInsecureContent: false,  // 禁用运行不安全内容，避免注入攻击，提高安全性
-                experimentalFeatures: false, // 禁用实验功能
-                preload: path.join(__dirname, '../../preload/index.js')  // 预加载脚本
-            }
-        });
+            frame: false,
+            transparent: true,
+            alwaysOnTop: true,
+            resizable: false,
+            center: true,
+            webPreferences: createSecureWebPreferences()
+        })
 
-        this.loadContent();
+        // 启动窗口关闭后释放单例引用，避免后续 activate 时拿到已销毁实例。
+        this.win.on('closed', () => {
+            this.win = null
+            splashWindowInstance = null
+        })
+
+        this.loadContent()
     }
 
     /**
-     * 加载启动窗口内容并模拟加载过程
-     * 在延迟后自动关闭启动屏并创建主窗口
+     * 加载启动页，并在启动页展示结束后创建主窗口。
      */
-    loadContent() {
-        // 根据开发环境或生产环境加载不同的启动屏幕文件
-        if (process.env.ELECTRON_DEV) {
-            // 开发环境下连接到Vite开发服务器
-            this.win.loadURL("http://localhost:5173/#/splash");
-        } else {
-            // 生产环境：加载主页面并通过URL参数或hash指定splash页面
-            this.win.loadFile(path.join(__dirname, '../../../dist/index.html'), {
-                hash: '#/splash'  // 使用hash路由
-            });
-        }
+    async loadContent() {
+        await loadRendererRoute(this.win, '#/splash')
 
-        // 模拟应用初始化加载过程，随机延迟1-3秒后关闭启动屏幕并创建主窗口
-        const delay = Math.floor(Math.random() * 3000) + 2000; // 1000-4000ms随机延迟
+        // 启动屏只承担视觉过渡；延迟结束后进入主窗口创建流程。
         setTimeout(() => {
             try {
-                // 创建主应用窗口
-                createMainWindow();
-                // 关闭启动屏幕
-                this.close();
+                createMainWindow()
             } catch (error) {
-                console.error('启动主窗口失败:', error);
-                // 即使出错也要关闭启动屏避免卡死
-                this.close();
+                log.error('启动主窗口失败', error)
+            } finally {
+                // 无论主窗口是否创建成功，都关闭启动屏，避免透明窗口残留。
+                this.close()
             }
-        }, delay);
+        }, getSplashDelay())
     }
 
     /**
-     * 关闭启动窗口
+     * 关闭启动窗口。
      */
     close() {
-        if (this.win) {
-            this.win.close();
-        }
+        this.win?.close()
     }
 }
 
-// 单例模式实现 - 确保整个应用只有一个启动窗口实例
-let splashWindowInstance = null;
+// 启动窗口单例：避免重复创建多个启动页。
+let splashWindowInstance = null
 
 /**
- * 创建启动窗口实例
+ * 创建启动窗口实例。
+ *
+ * @returns {SplashWindow} 启动窗口管理实例
  */
 export const createSplashWindow = () => {
     if (!splashWindowInstance) {
-        splashWindowInstance = new SplashWindow();
+        splashWindowInstance = new SplashWindow()
     }
-    return splashWindowInstance;
-};
+
+    return splashWindowInstance
+}

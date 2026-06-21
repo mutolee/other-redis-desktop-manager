@@ -1,5 +1,6 @@
 /**
- * 连接配置表单数据，用户初始化表单数据，以及重置表单数据
+ * 连接配置表单默认值。
+ * 用于创建/编辑连接配置弹窗初始化表单状态。
  */
 export const connectConfigFormData = {
     // 基础信息
@@ -12,27 +13,27 @@ export const connectConfigFormData = {
     db_index: 0,
     key_split: ':',
 
-    // SSH 隧道
+    // SSH 隧道配置
     use_ssh: false,
     ssh_host: 'localhost',
     ssh_port: 22,
     ssh_username: '',
     ssh_password: '',
-    ssh_auth_type: 'password', // 认证方式('password', 'private_key')
-    ssh_private_key: '',       // 私钥路径
-    ssh_private_key_passphrase: '', // 私钥密码
+    ssh_auth_type: 'password',
+    ssh_private_key: '',
+    ssh_private_key_passphrase: '',
 
     // SSL/TLS 配置
     use_ssl: false,
-    ssl_ca: '',      // CA 证书路径
-    ssl_cert: '',    // 客户端证书路径
-    ssl_key: '',     // 客户端私钥路径
+    ssl_ca: '',
+    ssl_cert: '',
+    ssl_key: '',
 
     // 哨兵配置
     use_sentinel: false,
     sentinel_master_name: '',
     sentinel_master_pass: '',
 
-    // 集群模式
+    // 集群模式配置
     use_cluster: false
 }

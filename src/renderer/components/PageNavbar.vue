@@ -1,16 +1,28 @@
 <!--
     PageNavbar.vue
-    描述：页面 Nav
+    描述：连接页签导航栏。展示已打开连接、连接状态图标和批量关闭页签操作。
  -->
 <script setup>
-import {ArrowDown, ArrowLeft, ArrowRight, CircleClose, Close} from "@element-plus/icons-vue";
-import {LinkThree, LinkInterrupt, Loading} from "@icon-park/vue-next"
-import {useConnectionConfigsStore} from "../stores/modules/connectionConfigsStore.js";
-import {storeToRefs} from "pinia";
-import {eventBus} from "../utils/eventBus.js";
+import {
+    Close,
+    CloseOne as CircleClose,
+    Down as ArrowDown,
+    Left as ArrowLeft,
+    LinkInterrupt,
+    LinkThree,
+    Loading,
+    Right as ArrowRight
+} from '@icon-park/vue-next'
+import { storeToRefs } from 'pinia'
+import { useI18n } from '../i18n/index.js'
+import { eventBus } from '../utils/eventBus.js'
+import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
 
-// 响应式数据
-const {activeConnectionConfigId, openedConnectionConfigs} = storeToRefs(useConnectionConfigsStore())
+// 国际化文案读取函数：驱动页签批量关闭菜单文案。
+const { t } = useI18n()
+
+// 连接配置 store：读取活动连接 ID 和已打开连接列表，驱动页签选中和关闭逻辑。
+const { activeConnectionConfigId, openedConnectionConfigs } = storeToRefs(useConnectionConfigsStore())
 
 /**
  * tab 点击事件
@@ -30,10 +42,20 @@ function tabClick(tab) {
  */
 function tabClose(tabId) {
     // 删除打开的 openedConnectionConfigs 中对应的连接配置
-    let deletedConnection = openedConnectionConfigs.value.find(connect => connect.id === tabId)
+    const deletedConnection = openedConnectionConfigs.value.find(connect => connect.id === tabId)
     if (deletedConnection) {
         eventBus.emit('close-opened-connection', deletedConnection)
     }
+}
+
+/**
+ * 批量关闭连接页签。
+ * @param {Array} connections 需要关闭的连接配置列表
+ */
+function closeConnections(connections) {
+    connections.forEach((connect) => {
+        eventBus.emit('close-opened-connection', connect)
+    })
 }
 
 /**
@@ -41,33 +63,21 @@ function tabClose(tabId) {
  * @param command
  */
 function dropdownEvent(command) {
-    console.log('dropdownEvent', command)
     switch (command) {
         case 'closeOther':
             // 查找openedConnectionConfigs中除了activeConnectionConfigId之外的连接配置
-            const otherConnectionConfigs = openedConnectionConfigs.value.filter(connect => connect.id !== activeConnectionConfigId.value)
-            otherConnectionConfigs.forEach(connect => {
-                eventBus.emit('close-opened-connection', connect)
-            })
+            closeConnections(openedConnectionConfigs.value.filter(connect => connect.id !== activeConnectionConfigId.value))
             break;
         case 'closeLeft':
             // 查找openedConnectionConfigs中activeConnectionConfigId索引以左的连接配置
-            const leftConnectionConfigs = openedConnectionConfigs.value.slice(0, openedConnectionConfigs.value.findIndex(connect => connect.id === activeConnectionConfigId.value))
-            leftConnectionConfigs.forEach(connect => {
-                eventBus.emit('close-opened-connection', connect)
-            })
+            closeConnections(openedConnectionConfigs.value.slice(0, openedConnectionConfigs.value.findIndex(connect => connect.id === activeConnectionConfigId.value)))
             break;
         case 'closeRight':
             // 查找openedConnectionConfigs中activeConnectionConfigId索引以右的连接配置
-            const rightConnectionConfigs = openedConnectionConfigs.value.slice(openedConnectionConfigs.value.findIndex(connect => connect.id === activeConnectionConfigId.value) + 1)
-            rightConnectionConfigs.forEach(connect => {
-                eventBus.emit('close-opened-connection', connect)
-            })
+            closeConnections(openedConnectionConfigs.value.slice(openedConnectionConfigs.value.findIndex(connect => connect.id === activeConnectionConfigId.value) + 1))
             break;
         case 'closeAll':
-            openedConnectionConfigs.value.forEach(connect => {
-                eventBus.emit('close-opened-connection', connect)
-            })
+            closeConnections(openedConnectionConfigs.value)
             break;
     }
 }
@@ -100,7 +110,7 @@ function dropdownEvent(command) {
             </el-tabs>
         </div>
         <div class="navbar-operation">
-            <el-dropdown @command="dropdownEvent">
+            <el-dropdown popper-class="page-navbar-dropdown" @command="dropdownEvent">
                 <span>
                   <el-icon class="navbar-operation-icon"><ArrowDown/></el-icon>
                 </span>
@@ -110,25 +120,25 @@ function dropdownEvent(command) {
                             <el-icon>
                                 <Close/>
                             </el-icon>
-                            关闭其他
+                            <span class="dropdown-item-text">{{ t('pageNavbar.closeOther') }}</span>
                         </el-dropdown-item>
                         <el-dropdown-item command="closeLeft">
                             <el-icon>
                                 <ArrowLeft/>
                             </el-icon>
-                            关闭左边
+                            <span class="dropdown-item-text">{{ t('pageNavbar.closeLeft') }}</span>
                         </el-dropdown-item>
                         <el-dropdown-item command="closeRight">
                             <el-icon>
                                 <ArrowRight/>
                             </el-icon>
-                            关闭右边
+                            <span class="dropdown-item-text">{{ t('pageNavbar.closeRight') }}</span>
                         </el-dropdown-item>
                         <el-dropdown-item command="closeAll">
                             <el-icon>
                                 <CircleClose/>
                             </el-icon>
-                            关闭全部
+                            <span class="dropdown-item-text">{{ t('pageNavbar.closeAll') }}</span>
                         </el-dropdown-item>
                     </el-dropdown-menu>
                 </template>
@@ -277,5 +287,33 @@ function dropdownEvent(command) {
 .navbar-operation .navbar-operation-icon {
     width: 40px;
     height: 40px;
+}
+
+/* 页签关闭菜单：下拉层会挂载到 body，需要使用全局选择器对齐 icon-park 图标和文本。 */
+:global(.page-navbar-dropdown .el-dropdown-menu__item) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+:global(.page-navbar-dropdown .el-dropdown-menu__item .el-icon) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    line-height: 0;
+    margin-right: 0;
+    flex-shrink: 0;
+}
+
+/* icon-park 的 SVG 视觉中心略偏上，这里只在页签菜单里轻微下移图形本身。 */
+:global(.page-navbar-dropdown .el-dropdown-menu__item .el-icon .i-icon) {
+    display: inline-flex;
+    transform: translateY(1px);
+}
+
+:global(.page-navbar-dropdown .dropdown-item-text) {
+    line-height: 1;
 }
 </style>

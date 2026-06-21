@@ -3,21 +3,29 @@
     描述：连接菜单为空的占位组件
  -->
 <script setup>
-import {eventBus} from "../utils/eventBus.js";
+import { eventBus } from '../utils/eventBus.js'
+import { useI18n } from '../i18n/index.js'
+
+// 国际化文案读取函数：驱动侧边栏空连接占位文案和按钮宽度适配。
+const { language, t } = useI18n()
 </script>
 
 <template>
+    <!-- 空连接列表：提供创建和导入两个入口，避免初次使用时停在空白菜单。 -->
     <el-empty
         :image-size="80"
-        description="还没有任何连接信息"
+        :description="t('sideBarEmpty.title')"
         class="menu-empty"
     >
         <template #description>
-            <p>还没有任何连接信息</p>
-            <p>点击下方按钮创建第一个连接</p>
+            <p>{{ t('sideBarEmpty.title') }}</p>
+            <p>{{ t('sideBarEmpty.description') }}</p>
         </template>
-        <el-button type="primary" @click="(e) => eventBus.emit('create-new-connection', e)">创建连接</el-button>
-        <el-button type="success" @click="() => eventBus.emit('import-connection')">导入连接</el-button>
+        <!-- 空态操作区：短文案左右排列，空间不足时自动换行，避免英文长文案撑乱布局。 -->
+        <div class="menu-empty-actions" :class="{ 'is-english': language === 'en-US' }">
+            <el-button type="primary" @click="(e) => eventBus.emit('create-new-connection', e)">{{ t('sideBarEmpty.create') }}</el-button>
+            <el-button type="success" @click="() => eventBus.emit('import-connection')">{{ t('sideBarEmpty.import') }}</el-button>
+        </div>
     </el-empty>
 </template>
 
@@ -33,5 +41,52 @@ import {eventBus} from "../utils/eventBus.js";
     --el-empty-fill-color-7: #51545e !important;
     --el-empty-fill-color-8: #36383c !important;
     --el-empty-fill-color-9: #2e2e32 !important;
+    width: 100%;
+    padding: 0 14px;
+    box-sizing: border-box;
+}
+
+/* 空态说明：限制文本宽度并居中，兼容英文长句换行。 */
+.menu-empty :deep(.el-empty__description) {
+    width: 100%;
+    max-width: 220px;
+    margin-top: 12px;
+}
+
+.menu-empty :deep(.el-empty__description p) {
+    margin: 0 0 6px;
+    line-height: 1.45;
+}
+
+/* Element Plus 底部插槽：固定为居中布局，避免按钮换行后受默认内容流影响。 */
+.menu-empty :deep(.el-empty__bottom) {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+}
+
+/* 空态按钮：优先横向排列，空间不足时自动换行，并覆盖相邻 el-button 的默认 margin-left。 */
+.menu-empty-actions {
+    --empty-action-button-width: 106px;
+    width: min(100%, calc(var(--empty-action-button-width) * 2 + 8px));
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+}
+
+.menu-empty-actions.is-english {
+    --empty-action-button-width: 180px;
+}
+
+.menu-empty-actions .el-button {
+    flex: 0 0 auto;
+    width: var(--empty-action-button-width);
+    max-width: 100%;
+    margin-left: 0;
+    height: auto;
+    min-height: 32px;
+    white-space: normal;
+    line-height: 1.2;
 }
 </style>

@@ -1,48 +1,87 @@
 <!--
     SideBarMenu.vue
-    描述：侧边栏菜单
+    描述：侧边栏连接菜单。展示连接分组、连接项、导出选择状态、加载中和空态。
  -->
 <script setup>
-import {FolderOpen, LinkThree, More} from "@icon-park/vue-next";
-import SideBarMenuAction from "./SideBarMenuAction.vue";
-import {useBaseStateStore} from "../stores/modules/baseStateStore.js";
-import {useConnectionConfigsStore} from "../stores/modules/connectionConfigsStore.js";
-import {storeToRefs} from "pinia";
-import SideBarMenuEmpty from "./SideBarMenuEmpty.vue";
-import {computed, ref,} from "vue";
-import {eventBus} from "../utils/eventBus.js";
-import {handleExportSelected, handleSelectAll, handleSelectNone, isGroupIndeterminate, isGroupSelected, toggleGroupSelection, toggleItemSelection} from "../utils/connectConfigExportUtil.js";
-import {useUserSettingsStore} from "../stores/modules/userSettingsStore.js";
+import { FolderOpen, LinkThree, Loading, More } from '@icon-park/vue-next'
+import { storeToRefs } from 'pinia'
+import { computed, ref } from 'vue'
+import { useI18n } from '../i18n/index.js'
+import { eventBus } from '../utils/eventBus.js'
+import {
+    handleExportSelected,
+    handleSelectAll,
+    handleSelectNone,
+    isGroupIndeterminate,
+    isGroupSelected,
+    toggleGroupSelection,
+    toggleItemSelection
+} from '../utils/connectConfigExportUtil.js'
+import { useBaseStateStore } from '../stores/modules/baseStateStore.js'
+import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
+import { useUserSettingsStore } from '../stores/modules/userSettingsStore.js'
+import SideBarMenuAction from './SideBarMenuAction.vue'
+import SideBarMenuEmpty from './SideBarMenuEmpty.vue'
 
-// 响应式数据
-const {exportModeState} = storeToRefs(useBaseStateStore())
-const {sideCollapseState} = storeToRefs(useUserSettingsStore())
-const {activeConnectionConfigId, selectedIds, connectionConfigs, connectionConfigsTree} = storeToRefs(useConnectionConfigsStore())
+// 国际化文案读取函数：驱动侧边栏连接列表加载态和导出操作文案。
+const { t } = useI18n()
+
+// 组件入参：接收侧边栏外层传入的加载状态，用来区分“连接还在加载中”和“连接列表真实为空”。
+const props = defineProps({
+    isLoading: {
+        type: Boolean,
+        default: false
+    }
+})
+
+// 基础状态 store：导出模式决定是否显示复选框和导出操作栏。
+const { exportModeState } = storeToRefs(useBaseStateStore())
+// 用户设置 store：侧边栏折叠状态影响菜单文本、更多按钮和空态展示。
+const { sideCollapseState } = storeToRefs(useUserSettingsStore())
+// 连接配置 store：菜单树、当前激活连接和导出选中项都由这里驱动。
+const { activeConnectionConfigId, selectedIds, connectionConfigs, connectionConfigsTree } = storeToRefs(useConnectionConfigsStore())
 const defaultOpened = ref(['group_name_1'])
 
 // 计算属性：是否显示下拉菜单（优化性能）
 const showMoreDropdown = computed(() => !sideCollapseState.value && !exportModeState.value)
 const showExportCheckbox = computed(() => !sideCollapseState.value && exportModeState.value)
+// 初始加载占位：当连接列表还没回来且当前确实没有任何数据时，显示 loading 而不是空态创建按钮。
+const showLoadingState = computed(() => props.isLoading && connectionConfigs.value.length === 0)
+// 空态占位：只有加载结束后依然没有任何连接配置时，才展示创建/导入按钮。
+const showEmptyState = computed(() => !props.isLoading && connectionConfigs.value.length === 0)
 
 </script>
 
 <template>
     <div class="sidebar-menu">
-        <SideBarMenuAction/>
-        <div class="sidebar-menu-panel">
-            <!-- 导出操作面板 --->
+        <!-- 顶部操作区：初始加载阶段先隐藏，避免在数据未返回时误显示“创建连接”相关操作。 -->
+        <SideBarMenuAction v-if="!showLoadingState"/>
+        <!-- 菜单主体区：列表加载中时显示 loading，真正空数据时再显示空态。 -->
+        <div
+            class="sidebar-menu-panel"
+            v-loading="props.isLoading && !showLoadingState"
+            :element-loading-text="t('sideBarMenu.loadingConnections')"
+        >
+            <!-- 导出操作面板：批量选择连接并导出。 -->
             <div v-show="!sideCollapseState && exportModeState" class="export-action-panel">
                 <div class="export-left">
-                    <el-button size="small" type="success" @click="handleSelectAll(connectionConfigs, selectedIds)">全选</el-button>
-                    <el-button size="small" type="warning" @click="handleSelectNone(selectedIds)">取消全选</el-button>
+                    <el-button size="small" type="success" @click="handleSelectAll(connectionConfigs, selectedIds, t)">{{ t('sideBarMenu.selectAll') }}</el-button>
+                    <el-button size="small" type="warning" @click="handleSelectNone(selectedIds, t)">{{ t('sideBarMenu.selectNone') }}</el-button>
                 </div>
-                <el-button size="small" type="primary" @click="handleExportSelected(connectionConfigs, selectedIds)">导出选中 ({{ selectedIds.size }})</el-button>
+                <el-button size="small" type="primary" @click="handleExportSelected(connectionConfigs, selectedIds, t)">{{ t('sideBarMenu.exportSelected').replace('{value}', selectedIds.size) }}</el-button>
             </div>
-            <!-- 连接菜单为空的占位组件 --->
-            <div v-if="connectionConfigs.length === 0" class="menu-panel-empty">
+            <!-- 初始加载占位：连接尚未加载完成前，避免误显示空态按钮。 -->
+            <div v-if="showLoadingState" class="menu-panel-loading">
+                <el-icon class="loading-icon">
+                    <Loading />
+                </el-icon>
+                <span class="loading-text">{{ t('sideBarMenu.loadingConnections') }}</span>
+            </div>
+            <!-- 连接菜单为空的占位组件。 -->
+            <div v-else-if="showEmptyState" class="menu-panel-empty">
                 <SideBarMenuEmpty v-show="!sideCollapseState"/>
             </div>
-            <!-- 连接菜单列表 --->
+            <!-- 连接菜单列表：分组展示连接，支持上下文菜单和导出选择。 -->
             <div v-else class="menu-panel">
                 <el-scrollbar>
                     <el-menu @select="(index) => eventBus.emit('click-connection', index)" :collapse="sideCollapseState" :collapse-transition="false" :default-active="String(activeConnectionConfigId)"
@@ -62,7 +101,7 @@ const showExportCheckbox = computed(() => !sideCollapseState.value && exportMode
                                         <FolderOpen/>
                                     </el-icon>
                                     <template v-if="!sideCollapseState">
-                                        <span v-show="!sideCollapseState" class="menu-sub-text">{{ sub.group_name }}</span>
+                                        <span class="menu-sub-text">{{ sub.group_name }}</span>
                                         <el-icon
                                             v-show="showMoreDropdown"
                                             class="menu-more-icon"
@@ -72,12 +111,12 @@ const showExportCheckbox = computed(() => !sideCollapseState.value && exportMode
                                     </template>
                                 </div>
                             </template>
-                            <component :is="sideCollapseState ? 'el-scrollbar' : 'div'" :maxHeight="sideCollapseState ? '500px' : undefined">
+                            <el-scrollbar :maxHeight="sideCollapseState ? '500px' : undefined">
                                 <el-menu-item :class="{'no-click': exportModeState}" v-for="item in sub.children" :key="item.id" :index="String(item.id)">
                                     <template #title>
                                         <div class="menu-item-panel">
                                             <el-checkbox
-                                                v-show="showExportCheckbox"
+                                                v-if="showExportCheckbox"
                                                 :model-value="selectedIds.has(item.id)"
                                                 @change="() => toggleItemSelection(selectedIds, item.id)"
                                                 @click.stop
@@ -87,7 +126,7 @@ const showExportCheckbox = computed(() => !sideCollapseState.value && exportMode
                                             </el-icon>
                                             <span class="menu-item-text">{{ item.name }}</span>
                                             <el-icon
-                                                v-show="showMoreDropdown"
+                                                v-if="showMoreDropdown"
                                                 class="menu-more-icon"
                                                 @click.stop="(e) => eventBus.emit('click-context-menu',{event: e, connection: item, type: 'connection'})">
                                                 <More theme="outline" size="16" fill="#aaa"/>
@@ -95,7 +134,7 @@ const showExportCheckbox = computed(() => !sideCollapseState.value && exportMode
                                         </div>
                                     </template>
                                 </el-menu-item>
-                            </component>
+                            </el-scrollbar>
                         </el-sub-menu>
                     </el-menu>
                 </el-scrollbar>
@@ -127,13 +166,32 @@ const showExportCheckbox = computed(() => !sideCollapseState.value && exportMode
 
 .export-action-panel {
     display: flex;
-    flex-direction: row;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 16px;
+    gap: 8px;
+    padding: 10px 12px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     background: var(--titlebar-bg-color);
     flex-shrink: 0;
+}
+
+/* 导出左侧按钮组：保留“选择操作在左、导出操作在右”的布局语义，空间不足时左侧按钮组内部自动换行。 */
+.export-left {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    max-width: 100%;
+}
+
+.export-action-panel .el-button {
+    margin-left: 0;
+    white-space: nowrap;
+}
+
+.export-action-panel > .el-button {
+    margin-left: auto;
 }
 
 .menu-panel-empty {
@@ -143,6 +201,29 @@ const showExportCheckbox = computed(() => !sideCollapseState.value && exportMode
     display: flex;
     justify-content: center;
     align-items: center;
+}
+
+/* 初始加载占位：在连接列表还未完成首轮加载时，给出稳定的居中 loading 反馈。 */
+.menu-panel-loading {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    color: var(--el-text-color-secondary);
+}
+
+/* Loading 图标：复用 Element Plus 图标旋转动效，保持和应用其余加载态一致。 */
+.menu-panel-loading .loading-icon {
+    font-size: 22px;
+    color: var(--el-color-primary);
+    animation: rotating 2s linear infinite;
+}
+
+.menu-panel-loading .loading-text {
+    font-size: 13px;
 }
 
 .menu-panel {
@@ -190,5 +271,14 @@ const showExportCheckbox = computed(() => !sideCollapseState.value && exportMode
 
 .no-click {
     pointer-events: none; /* 禁止点击 */
+}
+
+@keyframes rotating {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
 }
 </style>

@@ -1,48 +1,56 @@
 <!--
     SideBarMenuAction.vue
-    描述：侧边栏菜单操作
+    描述：侧边栏连接菜单操作区。提供新建、搜索、导入、导出模式切换等入口。
  -->
 <script setup>
-import {Close, Download, Plus, Search, Upload} from "@icon-park/vue-next";
-import {useBaseStateStore} from "../stores/modules/baseStateStore";
-import {storeToRefs} from "pinia";
-import {eventBus} from "../utils/eventBus.js";
-import {useConnectionConfigsStore} from "../stores/modules/connectionConfigsStore.js";
-import {useUserSettingsStore} from "../stores/modules/userSettingsStore.js";
+import { Close, Download, Plus, Search, Upload } from '@icon-park/vue-next'
+import { storeToRefs } from 'pinia'
+import { eventBus } from '../utils/eventBus.js'
+import { useBaseStateStore } from '../stores/modules/baseStateStore.js'
+import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
+import { useUserSettingsStore } from '../stores/modules/userSettingsStore.js'
+import { useI18n } from '../i18n/index.js'
 
-// 响应式数据
-const {searchModeState, exportModeState} = storeToRefs(useBaseStateStore())
-const {sideCollapseState} = storeToRefs(useUserSettingsStore())
-const {searchKeyword} = storeToRefs(useConnectionConfigsStore())
+// 基础状态 store：搜索模式和导出模式会影响顶部按钮可用性与展示状态。
+const { searchModeState, exportModeState } = storeToRefs(useBaseStateStore())
+// 用户设置 store：折叠时隐藏整个操作区，避免占用高度。
+const { sideCollapseState } = storeToRefs(useUserSettingsStore())
+// 连接配置 store：搜索框内容用于触发连接配置本地查询。
+const { searchKeyword } = storeToRefs(useConnectionConfigsStore())
+// 国际化文案读取函数：驱动侧边栏连接操作区 tooltip 和搜索占位文案。
+const { t } = useI18n()
 </script>
 
 <template>
-    <div class="sidebar-menu-action">
+    <!-- 顶部操作区：折叠状态下不占高度；展开时展示连接管理快捷入口。 -->
+    <div :class="['sidebar-menu-action', { 'is-collapsed': sideCollapseState }]">
         <template v-if="!sideCollapseState">
+            <!-- 操作按钮行：左侧新建，右侧搜索、导入和导出模式切换。 -->
             <div class="header-panel">
                 <div class="left">
-                    <el-tooltip content="新建连接" placement="bottom">
+                    <el-tooltip :content="t('sideBarAction.create')" placement="bottom">
                         <el-button class="action-btn" :icon="Plus" :disabled="exportModeState"
                                    @click="(e) => eventBus.emit('create-new-connection', e)"/>
                     </el-tooltip>
                 </div>
                 <div class="right">
-                    <el-tooltip content="搜索连接" placement="bottom">
+                    <el-tooltip :content="t('sideBarAction.search')" placement="bottom">
                         <el-button class="action-btn" :class="{'search-active':searchModeState}" :icon="Search"
                                    @click="() => searchModeState = !searchModeState"/>
                     </el-tooltip>
-                    <el-tooltip content="导入连接" placement="bottom">
-                        <el-button class="action-btn" :icon="Upload" :disabled="exportModeState"
+                    <el-tooltip :content="t('sideBarAction.import')" placement="bottom">
+                        <el-button class="action-btn" :icon="Download" :disabled="exportModeState"
                                    @click="() => eventBus.emit('import-connection')"/>
                     </el-tooltip>
-                    <el-tooltip :content="exportModeState ? '取消导出' : '导出连接'" placement="bottom">
-                        <el-button class="action-btn" :icon="exportModeState ? Close : Download"
+                    <el-tooltip :content="exportModeState ? t('sideBarAction.cancelExport') : t('sideBarAction.export')" placement="bottom">
+                        <el-button class="action-btn" :icon="exportModeState ? Close : Upload"
                                    :type="exportModeState ? 'danger' : ''" @click="() => exportModeState = !exportModeState"/>
                     </el-tooltip>
                 </div>
             </div>
+            <!-- 搜索输入区：仅搜索模式开启时展示，内容变化后通知侧边栏重新查询。 -->
             <div v-if="searchModeState" class="search-panel">
-                <el-input v-model="searchKeyword" class="search-input" @change="() => eventBus.emit('search-connection')" placeholder="搜索连接..." clearable/>
+                <el-input v-model="searchKeyword" class="search-input" @change="() => eventBus.emit('search-connection')" :placeholder="t('sideBarAction.searchPlaceholder')" clearable/>
             </div>
         </template>
     </div>
@@ -55,6 +63,14 @@ const {searchKeyword} = storeToRefs(useConnectionConfigsStore())
     flex-direction: column;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     flex-shrink: 0;
+}
+
+.sidebar-menu-action.is-collapsed {
+    border-bottom: none;
+    height: 0;
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
 }
 
 .header-panel {

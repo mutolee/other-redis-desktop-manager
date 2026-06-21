@@ -3,18 +3,23 @@
     描述：编辑连接配置对话框
  -->
 <script setup>
-import {computed, reactive, ref, watch} from "vue";
-import {Clue, LinkThree, Lock, More, Selected} from "@icon-park/vue-next";
-import {ElMessage} from "element-plus";
-import {connectConfigFormValidate, formRules} from "../../utils/connectConfigFormValidate.js";
-import {connectConfigFormData} from "../../utils/connectConfigFormData.js";
-import {useBaseStateStore} from "../../stores/modules/baseStateStore.js";
-import {storeToRefs} from "pinia";
-import {eventBus} from "../../utils/eventBus.js";
-import {connectConfigRepository} from "../../database/repositories/ConnectConfigRepository.js";
-import {useConnectionConfigsStore} from "../../stores/modules/connectionConfigsStore.js";
+import { computed, reactive, ref, watch } from 'vue'
+import { Clue, Edit, LinkThree, Lock, More, Selected } from '@icon-park/vue-next'
+import { ElMessage } from 'element-plus'
+import { storeToRefs } from 'pinia'
+import { connectConfigRepository } from '../../database/repositories/ConnectConfigRepository.js'
+import { eventBus } from '../../utils/eventBus.js'
+import { connectConfigFormData } from '../../utils/connectConfigFormData.js'
+import { connectConfigFormValidate, createConnectConfigFormRules } from '../../utils/connectConfigFormValidate.js'
+import { mergeConnectionRuntimeSettings } from '../../utils/redisConnectionConfigUtil.js'
+import { DEFAULT_GROUP_NAME, normalizeConnectionGroupName, resolveConnectionGroupName } from '../../utils/connectionGroupUtil.js'
+import { useBaseStateStore } from '../../stores/modules/baseStateStore.js'
+import { useConnectionConfigsStore } from '../../stores/modules/connectionConfigsStore.js'
+import { useUserSettingsStore } from '../../stores/modules/userSettingsStore.js'
+import DialogTitle from '../common/DialogTitle.vue'
+import { useI18n } from '../../i18n/index.js'
 
-// Props
+// 组件入参：控制弹窗显示，并传入当前要编辑的连接配置。
 const props = defineProps({
     visible: {
         type: Boolean
@@ -25,13 +30,13 @@ const props = defineProps({
     }
 })
 
-// Emits
+// 对外事件：同步弹窗显示状态，并在关闭后通知父组件清理编辑对象。
 const emit = defineEmits(['update:visible', 'closed'])
 
-// 响应式数据
-const {openedConnectionConfigs} = storeToRefs(useConnectionConfigsStore())
+// 连接配置 store：编辑保存后同步已打开连接页签里的配置快照。
+const { openedConnectionConfigs } = storeToRefs(useConnectionConfigsStore())
 
-// 计算属性
+// 弹窗可见性代理：透传 v-model:visible 给父组件。
 const dialogVisible = computed({
     get: () => props.visible,
     // update:visible 是一个特殊的 Vue 约定写法，用于实现自定义组件的双向绑定
@@ -61,7 +66,7 @@ const loadConnectionConfigData = () => {
     // 将连接配置数据填充到表单
     Object.assign(formData, {
         // 基础信息
-        group_name: config.group_name || '',
+        group_name: resolveConnectionGroupName(config.group_name),
         name: config.name || '',
         host: config.host || 'localhost',
         port: config.port || 6379,
@@ -101,13 +106,33 @@ const loadConnectionConfigData = () => {
     }
 }
 
-// 响应式数据
-const activeTab = ref('basic') // 当前激活的标签页
-const formRef = ref(null) // 表单引用
-const formData = reactive(Object.assign({}, connectConfigFormData)) // 表单数据
-const testConnectionLoading = ref(false) // 测试连接加载中
-const testConnectMessage = ref('')  // 测试连接消息
-const {searchModeState} = storeToRefs(useBaseStateStore())
+// 表单状态：维护当前页签、表单引用、连接配置表单数据和测试连接反馈。
+const activeTab = ref('basic')
+const formRef = ref(null)
+const formData = reactive(Object.assign({}, connectConfigFormData))
+const testConnectionLoading = ref(false)
+const testConnectMessage = ref('')
+const testConnectStatus = ref('')
+// 基础状态 store：保存成功后根据搜索模式决定刷新搜索结果还是全量连接列表。
+const { searchModeState } = storeToRefs(useBaseStateStore())
+// 系统连接设置：用于为测试连接补充连接超时和命令超时。
+const { connectionSettings } = storeToRefs(useUserSettingsStore())
+// 国际化状态：文案驱动弹窗内容，语言驱动表单标签宽度。
+const { language, t } = useI18n()
+
+// 表单校验规则：根据当前语言动态生成 Element Plus 校验提示。
+const formRules = computed(() => createConnectConfigFormRules(t))
+
+// 表单标签宽度：中文保持紧凑，英文为长字段名预留空间。
+const formLabelWidth = computed(() => language.value === 'en-US' ? '135px' : '100px')
+
+// 分组输入框展示值：只做默认组归一化，不再按语言翻译系统组常量。
+const groupNameDisplay = computed({
+    get: () => resolveConnectionGroupName(formData.group_name),
+    set: value => {
+        formData.group_name = resolveConnectionGroupName(value)
+    }
+})
 
 /**
  * 获取分组列表
@@ -117,15 +142,34 @@ const {searchModeState} = storeToRefs(useBaseStateStore())
 const handleGroupQuery = async (query, cb) => {
     try {
         const groupNames = await connectConfigRepository.findAllGroups(query)
-        let res = groupNames.map(name => ({value: name}))
-        // 如果res中不包括`默认分组`, 则添加一个默认分组
-        if (!res.some(item => item.value === '默认分组')) {
-            res.unshift({value: '默认分组'})
+        const formatGroupOption = (name) => {
+            const label = normalizeConnectionGroupName(name)
+
+            return {
+                value: label,
+                label,
+                rawValue: name
+            }
+        }
+        let res = groupNames.map(formatGroupOption)
+        // 如果候选项中不包括系统默认组，则追加默认组常量。
+        if (!res.some(item => item.rawValue === DEFAULT_GROUP_NAME)) {
+            res.unshift(formatGroupOption(DEFAULT_GROUP_NAME))
         }
         cb(res)
     } catch (error) {
-        console.error('获取分组列表失败:', error)
+        cb([])
     }
+}
+
+/**
+ * 选择分组候选项。
+ *
+ * @param {Object} item - autocomplete 候选项
+ */
+const handleSelectGroup = (item) => {
+    // 选择候选项时统一归一化，避免历史默认组值重新写回表单。
+    formData.group_name = resolveConnectionGroupName(item.rawValue || item.value)
 }
 
 /**
@@ -137,7 +181,7 @@ const handleSubmit = async () => {
         if (!isValid) return
 
         if (!props.connectionConfig || !props.connectionConfig.id) {
-            ElMessage.error('连接配置ID不存在')
+            ElMessage.error(t('connectionDialog.messages.missingId'))
             return
         }
 
@@ -146,7 +190,7 @@ const handleSubmit = async () => {
 
         // 调用更新连接配置接口
         await connectConfigRepository.update(props.connectionConfig.id, cleanFormData)
-        ElMessage.success('连接配置更新成功')
+        ElMessage.success(t('connectionDialog.messages.updateSuccess'))
 
         // 更新已经打开的连接配置
         const connection = openedConnectionConfigs.value.find(connect => connect.id === props.connectionConfig.id);
@@ -164,8 +208,7 @@ const handleSubmit = async () => {
 
         handleCancel()
     } catch (error) {
-        console.error('更新连接配置失败:', error)
-        ElMessage.error('更新连接配置失败: ' + (error.message || '未知错误'))
+        ElMessage.error(t('connectionDialog.messages.updateFail') + (error.message || t('connectionDialog.messages.unknownError')))
     }
 }
 
@@ -175,28 +218,34 @@ const handleSubmit = async () => {
 const handleTestConnection = async () => {
     try {
         testConnectionLoading.value = true
-        testConnectMessage.value = '正在测试连接...'
+        testConnectStatus.value = ''
+        testConnectMessage.value = t('connectionDialog.messages.testing')
 
         let isValid = await connectConfigFormValidate(formRef.value)
         if (!isValid) {
             testConnectMessage.value = ''
+            testConnectStatus.value = ''
             return
         }
 
         // 清理表单数据，确保只包含可序列化的内容
         const cleanFormData = JSON.parse(JSON.stringify(formData))
+        // 将系统设置中的超时参数注入本次测试连接请求。
+        const runtimeConnectionConfig = mergeConnectionRuntimeSettings(cleanFormData, connectionSettings.value)
 
         // 调用测试连接接口
-        let result = await window.api.redis.testConnection(cleanFormData)
+        let result = await window.api.redis.testConnection(runtimeConnectionConfig)
         if (result.success) {
-            testConnectMessage.value = '测试连接成功'
+            testConnectStatus.value = 'success'
+            testConnectMessage.value = t('connectionDialog.messages.testSuccess')
         } else {
-            testConnectMessage.value = '测试连接失败'
+            testConnectStatus.value = 'fail'
+            testConnectMessage.value = t('connectionDialog.messages.testFail') + (result.error || t('connectionDialog.messages.connectionError'))
         }
     } catch (error) {
-        testConnectMessage.value = '测试连接失败'
-        console.error('测试连接失败:', error)
-        ElMessage.error('测试连接失败: ' + (error.message || '未知错误'))
+        testConnectStatus.value = 'fail'
+        testConnectMessage.value = t('connectionDialog.messages.testFail') + (error.message || t('connectionDialog.messages.unknownError'))
+        ElMessage.error(testConnectMessage.value)
     } finally {
         testConnectionLoading.value = false
     }
@@ -214,6 +263,7 @@ const resetForm = () => {
     Object.assign(formData, connectConfigFormData)
     // 重置测试连接消息
     testConnectMessage.value = ''
+    testConnectStatus.value = ''
 }
 
 /**
@@ -227,25 +277,30 @@ const handleCancel = () => {
 </script>
 
 <template>
-    <el-dialog v-model="dialogVisible" title="编辑连接" width="800px"
+    <el-dialog v-model="dialogVisible" width="800px"
                :close-on-click-modal="false"
                :close-on-press-escape="false"
                @close="handleCancel">
-        <el-form ref="formRef" :model="formData" :rules="formRules" label-width="100px" label-position="right">
+        <template #header>
+            <!-- 弹窗标题：编辑连接配置使用编辑图标，区分创建连接弹窗。 -->
+            <DialogTitle :icon="Edit" :title="t('connectionDialog.editTitle')" />
+        </template>
+
+        <el-form ref="formRef" :model="formData" :rules="formRules" :label-width="formLabelWidth" label-position="right">
             <div class="dialog-content">
                 <div class="content-left">
                     <el-tabs v-model="activeTab" tab-position="left" class="connection-tabs">
-                        <el-tab-pane label="基础信息" name="basic">
+                        <el-tab-pane :label="t('connectionDialog.tabs.basic')" name="basic">
                             <template #label>
                                 <span class="tab-label">
-                                    <el-icon><LinkThree/></el-icon>基础信息
+                                    <el-icon><LinkThree/></el-icon>{{ t('connectionDialog.tabs.basic') }}
                                 </span>
                             </template>
                         </el-tab-pane>
-                        <el-tab-pane label="SSH隧道" name="ssh">
+                        <el-tab-pane :label="t('connectionDialog.tabs.ssh')" name="ssh">
                             <template #label>
                                 <span class="tab-label">
-                                    <el-icon><Clue/></el-icon>SSH隧道
+                                    <el-icon><Clue/></el-icon>{{ t('connectionDialog.tabs.ssh') }}
                                 </span>
                             </template>
                         </el-tab-pane>
@@ -256,10 +311,10 @@ const handleCancel = () => {
                                 </span>
                             </template>
                         </el-tab-pane>
-                        <el-tab-pane label="集群模式" name="cluster">
+                        <el-tab-pane :label="t('connectionDialog.tabs.cluster')" name="cluster">
                             <template #label>
                                 <span class="tab-label">
-                                    <el-icon><Selected/></el-icon>集群模式
+                                    <el-icon><Selected/></el-icon>{{ t('connectionDialog.tabs.cluster') }}
                                 </span>
                             </template>
                         </el-tab-pane>
@@ -269,34 +324,39 @@ const handleCancel = () => {
                     <el-scrollbar>
                         <!-- 基础信息 -->
                         <div v-show="activeTab === 'basic'" class="tab-content">
-                            <h3 class="section-title">基础连接信息</h3>
+                            <h3 class="section-title">{{ t('connectionDialog.sections.basic') }}</h3>
                             <el-divider/>
-                            <el-form-item label="分组名称" prop="group_name">
+                            <el-form-item :label="t('connectionDialog.fields.groupName')" prop="group_name">
                                 <el-autocomplete
-                                    v-model="formData.group_name"
+                                    v-model="groupNameDisplay"
                                     :fetch-suggestions="handleGroupQuery"
-                                    placeholder="请输入分组名称"
+                                    :placeholder="t('connectionDialog.placeholders.groupName')"
                                     :maxlength="25"
                                     clearable
                                     style="width: 300px"
-                                />
+                                    @select="handleSelectGroup"
+                                >
+                                    <template #default="{ item }">
+                                        <span>{{ item.label }}</span>
+                                    </template>
+                                </el-autocomplete>
                             </el-form-item>
-                            <el-form-item label="连接名称" prop="name">
+                            <el-form-item :label="t('connectionDialog.fields.connectionName')" prop="name">
                                 <el-input
                                     v-model="formData.name"
-                                    placeholder="请输入连接名称"
+                                    :placeholder="t('connectionDialog.placeholders.connectionName')"
                                     :maxlength="30"
                                     clearable
                                     style="width: 300px"
                                 />
                             </el-form-item>
-                            <el-form-item label="主机地址" prop="host">
+                            <el-form-item :label="t('connectionDialog.fields.host')" prop="host">
                                 <el-input
                                     v-model="formData.host"
                                     placeholder="localhost"
                                 />
                             </el-form-item>
-                            <el-form-item label="端口" prop="port">
+                            <el-form-item :label="t('connectionDialog.fields.port')" prop="port">
                                 <el-input-number
                                     v-model="formData.port"
                                     :min="1"
@@ -304,23 +364,23 @@ const handleCancel = () => {
                                     style="width: 150px"
                                 />
                             </el-form-item>
-                            <el-form-item label="用户名">
+                            <el-form-item :label="t('connectionDialog.fields.username')">
                                 <el-input
                                     v-model="formData.username"
-                                    placeholder="可选，Redis ACL用户名"
+                                    :placeholder="t('connectionDialog.placeholders.username')"
                                     style="width: 300px"
                                 />
                             </el-form-item>
-                            <el-form-item label="密码">
+                            <el-form-item :label="t('connectionDialog.fields.password')">
                                 <el-input
                                     v-model="formData.password"
                                     type="password"
-                                    placeholder="可选，Redis密码"
+                                    :placeholder="t('connectionDialog.placeholders.password')"
                                     show-password
                                     style="width: 300px"
                                 />
                             </el-form-item>
-                            <el-form-item label="键分隔符">
+                            <el-form-item :label="t('connectionDialog.fields.keySeparator')">
                                 <el-input
                                     v-model="formData.key_split"
                                     placeholder=":"
@@ -330,33 +390,33 @@ const handleCancel = () => {
                         </div>
                         <!-- SSH隧道配置 -->
                         <div v-show="activeTab === 'ssh'" class="tab-content">
-                            <h3 class="section-title">SSH隧道配置</h3>
+                            <h3 class="section-title">{{ t('connectionDialog.sections.ssh') }}</h3>
                             <el-divider/>
                             <div class="block-tip">
-                                <p class="title">TIP</p>
-                                <p>SSH隧道功能暂未实现，功能开发ing，强行使用无效！</p>
+                                <p class="title">{{ t('connectionDialog.tipTitle') }}</p>
+                                <p>{{ t('connectionDialog.tips.sshUnavailable') }}</p>
                             </div>
                             <div class="content-header-switch">
                                 <el-switch
                                     v-model="formData.use_ssh"
-                                    active-text="启用SSH隧道"
+                                    :active-text="t('connectionDialog.options.enableSsh')"
                                 />
                             </div>
                             <template v-if="formData.use_ssh">
-                                <el-form-item label="SSH主机" prop="ssh_host">
+                                <el-form-item :label="t('connectionDialog.fields.sshHost')" prop="ssh_host">
                                     <el-input
                                         v-model="formData.ssh_host"
-                                        placeholder="SSH服务器地址"
+                                        :placeholder="t('connectionDialog.placeholders.sshHost')"
                                     />
                                 </el-form-item>
-                                <el-form-item label="SSH用户名" prop="ssh_username">
+                                <el-form-item :label="t('connectionDialog.fields.sshUsername')" prop="ssh_username">
                                     <el-input
                                         v-model="formData.ssh_username"
-                                        placeholder="SSH用户名"
+                                        :placeholder="t('connectionDialog.placeholders.sshUsername')"
                                         style="width: 300px"
                                     />
                                 </el-form-item>
-                                <el-form-item label="SSH端口" prop="ssh_port">
+                                <el-form-item :label="t('connectionDialog.fields.sshPort')" prop="ssh_port">
                                     <el-input-number
                                         v-model="formData.ssh_port"
                                         :min="1"
@@ -364,37 +424,37 @@ const handleCancel = () => {
                                         style="width: 150px"
                                     />
                                 </el-form-item>
-                                <el-form-item label="认证方式">
+                                <el-form-item :label="t('connectionDialog.fields.authType')">
                                     <el-radio-group v-model="formData.ssh_auth_type">
-                                        <el-radio value="password">密码认证</el-radio>
-                                        <el-radio value="private_key">私钥认证</el-radio>
+                                        <el-radio value="password">{{ t('connectionDialog.options.passwordAuth') }}</el-radio>
+                                        <el-radio value="private_key">{{ t('connectionDialog.options.privateKeyAuth') }}</el-radio>
                                     </el-radio-group>
                                 </el-form-item>
-                                <el-form-item v-if="formData.ssh_auth_type === 'password'" label="SSH密码">
+                                <el-form-item v-if="formData.ssh_auth_type === 'password'" :label="t('connectionDialog.fields.sshPassword')">
                                     <el-input
                                         v-model="formData.ssh_password"
                                         type="password"
-                                        placeholder="SSH密码"
+                                        :placeholder="t('connectionDialog.placeholders.sshPassword')"
                                         show-password
                                         style="width: 300px"
                                     />
                                 </el-form-item>
                                 <template v-if="formData.ssh_auth_type === 'private_key'">
-                                    <el-form-item label="私钥路径">
+                                    <el-form-item :label="t('connectionDialog.fields.privateKeyPath')">
                                         <el-input
                                             v-model="formData.ssh_private_key"
-                                            placeholder="私钥文件路径"
+                                            :placeholder="t('connectionDialog.placeholders.privateKeyPath')"
                                         >
                                             <template #append>
                                                 <el-button :icon="More"/>
                                             </template>
                                         </el-input>
                                     </el-form-item>
-                                    <el-form-item label="私钥密码">
+                                    <el-form-item :label="t('connectionDialog.fields.privateKeyPassword')">
                                         <el-input
                                             v-model="formData.ssh_private_key_passphrase"
                                             type="password"
-                                            placeholder="私钥密码（可选）"
+                                            :placeholder="t('connectionDialog.placeholders.privateKeyPassword')"
                                             show-password
                                         >
                                             <template #append>
@@ -407,23 +467,23 @@ const handleCancel = () => {
                         </div>
                         <!-- SSL/TLS配置 -->
                         <div v-show="activeTab === 'ssl'" class="tab-content">
-                            <h3 class="section-title">SSL/TLS加密配置</h3>
+                            <h3 class="section-title">{{ t('connectionDialog.sections.ssl') }}</h3>
                             <el-divider/>
                             <div class="block-tip">
-                                <p class="title">TIP</p>
-                                <p>SSL/TLS加密连接暂未实现，功能开发ing，强行使用无效！</p>
+                                <p class="title">{{ t('connectionDialog.tipTitle') }}</p>
+                                <p>{{ t('connectionDialog.tips.sslUnavailable') }}</p>
                             </div>
                             <div class="content-header-switch">
                                 <el-switch
                                     v-model="formData.use_ssl"
-                                    active-text="启用SSL/TLS加密"
+                                    :active-text="t('connectionDialog.options.enableSsl')"
                                 />
                             </div>
                             <template v-if="formData.use_ssl">
-                                <el-form-item label="CA证书">
+                                <el-form-item :label="t('connectionDialog.fields.caCert')">
                                     <el-input
                                         v-model="formData.ssl_ca"
-                                        placeholder="CA证书文件路径"
+                                        :placeholder="t('connectionDialog.placeholders.caCert')"
                                     >
                                         <template #append>
                                             <el-button :icon="More"/>
@@ -431,10 +491,10 @@ const handleCancel = () => {
                                     </el-input>
                                 </el-form-item>
 
-                                <el-form-item label="客户端证书">
+                                <el-form-item :label="t('connectionDialog.fields.clientCert')">
                                     <el-input
                                         v-model="formData.ssl_cert"
-                                        placeholder="客户端证书文件路径"
+                                        :placeholder="t('connectionDialog.placeholders.clientCert')"
                                     >
                                         <template #append>
                                             <el-button :icon="More"/>
@@ -442,10 +502,10 @@ const handleCancel = () => {
                                     </el-input>
                                 </el-form-item>
 
-                                <el-form-item label="客户端私钥">
+                                <el-form-item :label="t('connectionDialog.fields.clientKey')">
                                     <el-input
                                         v-model="formData.ssl_key"
-                                        placeholder="客户端私钥文件路径"
+                                        :placeholder="t('connectionDialog.placeholders.clientKey')"
                                     >
                                         <template #append>
                                             <el-button :icon="More"/>
@@ -456,40 +516,40 @@ const handleCancel = () => {
                         </div>
                         <!-- 集群模式配置 -->
                         <div v-show="activeTab === 'cluster'" class="tab-content">
-                            <h3 class="section-title">集群模式配置</h3>
+                            <h3 class="section-title">{{ t('connectionDialog.sections.cluster') }}</h3>
                             <el-divider/>
                             <div class="block-tip">
-                                <p class="title">TIP</p>
-                                <p>集群模式配置暂未实现，功能开发ing，强行使用无效！</p>
+                                <p class="title">{{ t('connectionDialog.tipTitle') }}</p>
+                                <p>{{ t('connectionDialog.tips.clusterUnavailable') }}</p>
                             </div>
                             <div class="content-header-switch">
                                 <el-checkbox
                                     v-model="formData.use_sentinel"
                                     :disabled="formData.use_cluster"
                                 >
-                                    启用哨兵模式
+                                    {{ t('connectionDialog.options.enableSentinel') }}
                                 </el-checkbox>
                                 <el-checkbox
                                     v-model="formData.use_cluster"
                                     :disabled="formData.use_sentinel"
                                 >
-                                    启用集群模式
+                                    {{ t('connectionDialog.options.enableCluster') }}
                                 </el-checkbox>
                             </div>
                             <template v-if="formData.use_sentinel">
-                                <el-form-item label="主节点名称" prop="sentinel_master_name">
+                                <el-form-item :label="t('connectionDialog.fields.masterName')" prop="sentinel_master_name">
                                     <el-input
                                         v-model="formData.sentinel_master_name"
-                                        placeholder="哨兵主节点名称"
+                                        :placeholder="t('connectionDialog.placeholders.masterName')"
                                         style="width: 300px"
                                     />
                                 </el-form-item>
 
-                                <el-form-item label="主节点密码">
+                                <el-form-item :label="t('connectionDialog.fields.masterPassword')">
                                     <el-input
                                         v-model="formData.sentinel_master_pass"
                                         type="password"
-                                        placeholder="哨兵主节点密码"
+                                        :placeholder="t('connectionDialog.placeholders.masterPassword')"
                                         show-password
                                         style="width: 300px"
                                     />
@@ -504,16 +564,16 @@ const handleCancel = () => {
             <div class="dialog-footer">
                 <div class="footer-left">
                     <el-button type="warning" plain :loading="testConnectionLoading"
-                               @click="handleTestConnection">测试连接
+                               @click="handleTestConnection">{{ t('connectionDialog.actions.test') }}
                     </el-button>
                     <el-text
-                        :class="{'result-fail':testConnectMessage.includes('失败'), 'result-success':testConnectMessage.includes('成功')}">
+                        :class="{'result-fail': testConnectStatus === 'fail', 'result-success': testConnectStatus === 'success'}">
                         {{ testConnectMessage }}
                     </el-text>
                 </div>
                 <div class="footer-right">
-                    <el-button @click="handleCancel">取消</el-button>
-                    <el-button type="primary" @click="handleSubmit">更新连接</el-button>
+                    <el-button @click="handleCancel">{{ t('common.cancel') }}</el-button>
+                    <el-button type="primary" @click="handleSubmit">{{ t('connectionDialog.actions.update') }}</el-button>
                 </div>
             </div>
         </template>
@@ -540,6 +600,11 @@ const handleCancel = () => {
 
 .tab-content {
     padding: 0 20px 20px 0;
+}
+
+/* 表单标签：英文模式下字段名较长，固定单行避免 SSH Username 这类 label 被拆行。 */
+.tab-content :deep(.el-form-item__label) {
+    white-space: nowrap;
 }
 
 .section-title {
@@ -580,6 +645,22 @@ const handleCancel = () => {
 
 .result-fail {
     color: var(--el-color-danger);
+}
+
+.footer-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.footer-left .el-text {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: break-word;
+    text-align: left;
+    margin-right: 12px;
 }
 
 .result-success {

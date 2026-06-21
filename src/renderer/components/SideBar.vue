@@ -1,33 +1,50 @@
 <!--
     SideBar.vue
-    描述：菜单边栏
+    描述：左侧连接管理边栏。负责连接配置加载、搜索、导入导出、上下文菜单和命令面板入口。
  -->
 <script setup>
-import SideBarHeader from "./SideBarHeader.vue";
-import SideBarFooter from "./SideBarFooter.vue";
-import SideBarMenu from "./SideBarMenu.vue";
-import {onMounted, ref, shallowRef, watch} from "vue";
-import {eventBus} from "../utils/eventBus.js";
-import {ElMessage} from "element-plus";
-import {useConnectionConfigsStore} from "../stores/modules/connectionConfigsStore.js";
-import {storeToRefs} from "pinia";
-import {useBaseStateStore} from "../stores/modules/baseStateStore.js";
-import {connectConfigRepository} from "../database/repositories/ConnectConfigRepository.js";
-import {handleImportFileSelect} from "../utils/connectConfigImportUtil.js";
-import ConnectionConfigCreateDialog from "./dialog/ConnectionConfigCreateDialog.vue";
-import ConnectionConfigEditDialog from "./dialog/ConnectionConfigEditDialog.vue";
-import ConnectionConfigMoveDialog from "./dialog/ConnectionConfigMoveDialog.vue";
-import ConnectionConfigRenameGroupDialog from "./dialog/ConnectionConfigRenameGroupDialog.vue";
-import {handleDeleteConnectionConfig, handleDeleteFolder} from "../utils/connectConfigDeleteUtil.js";
-import ConnectionConfigContextMenu from "./dialog/ConnectionConfigContextMenu.vue";
-import CommandDrawer from "./drawer/CommandDrawer.vue";
+import { storeToRefs } from 'pinia'
+import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { ElMessage } from 'element-plus'
+import { useI18n } from '../i18n/index.js'
+import { eventBus } from '../utils/eventBus.js'
+import { connectConfigRepository } from '../database/repositories/ConnectConfigRepository.js'
+import { handleDeleteConnectionConfig, handleDeleteFolder } from '../utils/connectConfigDeleteUtil.js'
+import { handleImportFileSelect } from '../utils/connectConfigImportUtil.js'
+import { DEFAULT_GROUP_NAME } from '../utils/connectionGroupUtil.js'
+import { mergeConnectionRuntimeSettings } from '../utils/redisConnectionConfigUtil.js'
+import { useBaseStateStore } from '../stores/modules/baseStateStore.js'
+import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
+import { useUserSettingsStore } from '../stores/modules/userSettingsStore.js'
+import SideBarHeader from './SideBarHeader.vue'
+import SideBarFooter from './SideBarFooter.vue'
+import SideBarMenu from './SideBarMenu.vue'
+import ConnectionConfigContextMenu from './dialog/ConnectionConfigContextMenu.vue'
+import ConnectionConfigCreateDialog from './dialog/ConnectionConfigCreateDialog.vue'
+import ConnectionConfigEditDialog from './dialog/ConnectionConfigEditDialog.vue'
+import ConnectionConfigMoveDialog from './dialog/ConnectionConfigMoveDialog.vue'
+import ConnectionConfigRenameGroupDialog from './dialog/ConnectionConfigRenameGroupDialog.vue'
+import CommandDrawer from './drawer/CommandDrawer.vue'
 
-// 响应式数据
-const {activeConnectionConfigId, openedConnectionConfigs, connectionConfigs, searchKeyword, selectedIds} = storeToRefs(useConnectionConfigsStore())
-const {exportModeState, searchModeState} = storeToRefs(useBaseStateStore())
+// 国际化文案读取函数：驱动侧边栏连接操作反馈消息。
+const { t } = useI18n()
+
+// 连接配置 store：驱动左侧菜单数据、当前激活连接、已打开连接和批量导出选中项。
+const {
+    activeConnectionConfigId,
+    openedConnectionConfigs,
+    connectionConfigs,
+    searchKeyword,
+    selectedIds,
+    isConnectionConfigsLoading
+} = storeToRefs(useConnectionConfigsStore())
+// 基础状态 store：读取搜索模式和导出模式，控制菜单交互状态。
+const { exportModeState, searchModeState } = storeToRefs(useBaseStateStore())
+// 系统连接设置：为连接动作补充连接超时、命令超时等运行时参数。
+const { connectionSettings } = storeToRefs(useUserSettingsStore())
 const fileInputRef = ref(null) // 导入文件输入框引用
 const connectCreateDialogVisible = ref(false)
-const defaultGroupName = ref('默认分组') // 打开创建连接配置窗口的默认分组名称
+const defaultGroupName = ref(DEFAULT_GROUP_NAME) // 打开创建连接配置窗口的默认组名称
 const copyFromConnection = ref(null) // 复制的连接配置对象
 const editDialogVisible = ref(false) // 编辑连接配置对话框可见性
 const editConnectionConfig = ref(null) // 当前正在编辑的连接配置项
@@ -42,36 +59,45 @@ const contextMenuVisible = ref(false) // 上下文菜单可见性
 const contextMenuType = ref('connection') // 'connection' 或 'group'
 const contextMenuItem = ref(null) // 当前操作的项
 const virtualRef = shallowRef(null) // 浅响应式, 用于popover引用菜单元素
+// 侧边栏注册的全局事件集合：统一登记，卸载时逐项解绑，避免重复监听。
+const sideBarEventBindings = []
 
 
 onMounted(async () => {
-    // 监听加载连接配置事件
-    eventBus.on('load-connection', loadConnection)
-    // 监听搜索配置事件
-    eventBus.on('search-connection', searchConnection)
-    // 监听创建连接事件
-    eventBus.on('create-new-connection', createNewConnection)
-    // 监听导入连接事件
-    eventBus.on('import-connection', importConnections)
-    // 监听菜单项点击事件
-    eventBus.on('click-connection', handleMenuSelect)
-    // 监听菜单上下文菜单点击事件
-    eventBus.on('click-context-menu', showContextMenu)
-    // 监听删除连接事件
-    eventBus.on('delete-connection', removeConnection)
-    // 监听编辑连接配置事件
-    eventBus.on('edit-connection', editConnection)
-    // 监听移动连接配置分组事件
-    eventBus.on('move-connection', moveConnection)
-    // 监听重命名连接分组事件
-    eventBus.on('rename-connection-group', renameConnectionGroup)
-    // 监听删除连接分组事件
-    eventBus.on('delete-connection-group', deleteFolder)
-    // 监听打开命令行事件
-    eventBus.on('open-command', handleOpenCommand)
+    // 侧边栏全局事件：集中注册连接列表刷新、菜单选择、上下文菜单和命令面板入口。
+    sideBarEventBindings.push(
+        ['load-connection', loadConnection],
+        ['search-connection', searchConnection],
+        ['create-new-connection', createNewConnection],
+        ['import-connection', importConnections],
+        ['click-connection', handleMenuSelect],
+        ['click-context-menu', showContextMenu],
+        ['delete-connection', removeConnection],
+        ['edit-connection', editConnection],
+        ['move-connection', moveConnection],
+        ['rename-connection-group', renameConnectionGroup],
+        ['delete-connection-group', deleteFolder],
+        ['open-command', handleOpenCommand]
+    )
+
+    for (const [eventName, handler] of sideBarEventBindings) {
+        eventBus.on(eventName, handler)
+    }
 
     // 加载连接配置数据
     await loadConnection()
+})
+
+onBeforeUnmount(() => {
+    // 释放侧边栏注册到事件总线的监听器，防止组件重建后重复执行连接相关动作。
+    for (const [eventName, handler] of sideBarEventBindings) {
+        eventBus.off(eventName, handler)
+    }
+    sideBarEventBindings.length = 0
+
+    // 移除懒创建的文件选择器，避免隐藏 DOM 节点长期残留。
+    fileInputRef.value?.remove()
+    fileInputRef.value = null
 })
 
 // 监听搜索模式状态，如果关闭，则关闭搜索模式
@@ -93,14 +119,26 @@ watch(exportModeState, (newValue) => {
  * 加载连接配置数据
  */
 const loadConnection = async () => {
-    connectionConfigs.value = await connectConfigRepository.getAll();
+    // 拉取完整连接列表时显式标记加载中，避免初始阶段误显示“创建连接”空态按钮。
+    isConnectionConfigsLoading.value = true
+    try {
+        connectionConfigs.value = await connectConfigRepository.getAll();
+    } finally {
+        isConnectionConfigsLoading.value = false
+    }
 }
 
 /**
  * 搜索连接配置
  */
 const searchConnection = async () => {
-    connectionConfigs.value = await connectConfigRepository.search(searchKeyword.value)
+    // 搜索时沿用同一套加载状态，便于菜单区域统一展示 loading 反馈。
+    isConnectionConfigsLoading.value = true
+    try {
+        connectionConfigs.value = await connectConfigRepository.search(searchKeyword.value)
+    } finally {
+        isConnectionConfigsLoading.value = false
+    }
 }
 
 /**
@@ -110,8 +148,8 @@ const searchConnection = async () => {
 const createNewConnection = (connectionConfig) => {
     // 检查是否是事件对象，如果不是事件对象，则表示传入了参数
     if (connectionConfig instanceof Event) {
-        // 如果是事件对象，使用默认分组，表示创建新的连接配置
-        defaultGroupName.value = '默认分组'
+        // 如果是事件对象，使用系统默认组，表示创建新的连接配置。
+        defaultGroupName.value = DEFAULT_GROUP_NAME
         copyFromConnection.value = null
     } else {
         // 判断是否是字符串（分组名称）
@@ -160,7 +198,7 @@ const importConnections = async () => {
 const handleMenuSelect = (index) => {
     try {
         if (exportModeState.value) {
-            ElMessage.info('导出模式下无法选择连接')
+            ElMessage.info(t('sideBar.messages.exportModeSelectDisabled'))
             return false
         } else {
             // 获取激活的连接配置
@@ -173,8 +211,10 @@ const handleMenuSelect = (index) => {
                     openedConnectionConfigs.value.push(openedConnection)
                     // 更新连接配置的最后激活时间
                     connectConfigRepository.updateLastActiveTime(openedConnection.id)
+                    // 将系统设置中的超时参数合并到本次连接请求。
+                    const runtimeConnectionConfig = mergeConnectionRuntimeSettings(openedConnection, connectionSettings.value)
                     // 打开Redis连接
-                    window.api.redis.connect(openedConnection.id, openedConnection)
+                    window.api.redis.connect(openedConnection.id, runtimeConnectionConfig)
                 }
                 activeConnectionConfigId.value = openedConnection.id
             } else {
@@ -182,7 +222,7 @@ const handleMenuSelect = (index) => {
             }
         }
     } catch (error) {
-        console.error('Error in handleMenuSelect:', error)
+        ElMessage.error(`${t('sideBar.messages.openConnectionFail')}: ${error.message || error}`)
     }
 }
 
@@ -217,7 +257,7 @@ const removeConnection = async (connection) => {
     try {
         let result = await handleDeleteConnectionConfig(connection)
         if (!result) return
-        ElMessage.success('连接配置删除成功')
+        ElMessage.success(t('sideBar.messages.deleteConnectionSuccess'))
 
         // 关闭已经打开的连接配置
         if (openedConnectionConfigs.value.find(config => config.id === connection.id)) {
@@ -231,7 +271,7 @@ const removeConnection = async (connection) => {
             eventBus.emit('load-connection')
         }
     } catch (error) {
-        ElMessage.error('删除连接配置失败: ' + (error.message || '未知错误'))
+        ElMessage.error(`${t('sideBar.messages.deleteConnectionFail')}: ${error.message || t('sideBar.messages.unknownError')}`)
     }
 }
 
@@ -274,7 +314,7 @@ const deleteFolder = async (item) => {
     try {
         let result = await handleDeleteFolder(item)
         if (!result) return
-        ElMessage.success('分组删除成功')
+        ElMessage.success(t('sideBar.messages.deleteGroupSuccess'))
 
         // 关闭已经打开的连接配置
         if (item.children) {
@@ -292,7 +332,7 @@ const deleteFolder = async (item) => {
             eventBus.emit('load-connection')
         }
     } catch (error) {
-        ElMessage.error('删除分组失败: ' + (error.message || '未知错误'))
+        ElMessage.error(`${t('sideBar.messages.deleteGroupFail')}: ${error.message || t('sideBar.messages.unknownError')}`)
     }
 }
 
@@ -309,41 +349,43 @@ const handleOpenCommand = async (connection) => {
 
 <template>
     <div class="side-bar">
-        <!-- 菜单栏头部 -->
+        <!-- 侧边栏品牌头部。 -->
         <SideBarHeader/>
-        <!-- 菜单栏 -->
-        <SideBarMenu/>
-        <!-- 菜单栏底部 -->
+
+        <!-- 连接菜单主体：包含搜索、导出、连接分组和连接项。 -->
+        <SideBarMenu :is-loading="isConnectionConfigsLoading"/>
+
+        <!-- 侧边栏底部开源入口。 -->
         <SideBarFooter/>
 
-        <!-- 创建连接对话框 --->
+        <!-- 创建连接对话框。 -->
         <ConnectionConfigCreateDialog v-model:visible="connectCreateDialogVisible"
                                       :default-group-name="defaultGroupName"
                                       :copy-from-connection-config="copyFromConnection"
-                                      @closed="() => {defaultGroupName = '默认分组'; copyFromConnection = null}"/>
+                                      @closed="() => {defaultGroupName = DEFAULT_GROUP_NAME; copyFromConnection = null}"/>
 
-        <!-- 编辑连接配置对话框 --->
+        <!-- 编辑连接配置对话框。 -->
         <ConnectionConfigEditDialog
             v-model:visible="editDialogVisible"
             :connection-config="editConnectionConfig"
             @closed="() => editConnectionConfig = null"
         />
 
-        <!-- 重命名分组对话框 --->
+        <!-- 重命名分组对话框。 -->
         <ConnectionConfigRenameGroupDialog
             v-model:visible="connectionConfigRenameGroupDialogVisible"
             :group-name="connectionConfigRenameGroupName"
             @closed="() => connectionConfigRenameGroupName = ''"
         />
 
-        <!-- 移动连接配置对话框 --->
+        <!-- 移动连接配置对话框。 -->
         <ConnectionConfigMoveDialog
             v-model:visible="connectionConfigMoveDialogVisible"
             :connection="connectionConfigMoveDialogConnection"
             @closed="() => connectionConfigMoveDialogConnection = null"
         />
 
-        <!-- 共享的上下文菜单（性能优化：所有菜单项共用一个下拉菜单） --->
+        <!-- 共享上下文菜单：所有菜单项共用一个 Popover，减少大量菜单项下的组件数量。 -->
         <ConnectionConfigContextMenu
             v-model:visible="contextMenuVisible"
             :virtual-ref="virtualRef"
@@ -351,7 +393,7 @@ const handleOpenCommand = async (connection) => {
             :menu-item="contextMenuItem"
         />
 
-        <!-- 命令行 --->
+        <!-- 命令行抽屉：打开时基于目标连接创建独立命令会话。 -->
         <CommandDrawer
             v-model:visible="commandDrawerVisible"
             :connection="commandDrawerConnection"

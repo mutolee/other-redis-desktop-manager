@@ -1,147 +1,191 @@
-import {ElMessage} from "element-plus";
-import {connectConfigRepository} from "../database/repositories/ConnectConfigRepository.js";
-import {eventBus} from "./eventBus.js";
+/**
+ * 连接配置导入工具。
+ * 负责读取 JSON 文件、校验基础格式、处理重名连接并刷新连接列表。
+ */
+import { ElMessage } from 'element-plus'
+import { connectConfigRepository } from '../database/repositories/ConnectConfigRepository.js'
+import { eventBus } from './eventBus.js'
+import { resolveConnectionGroupName } from './connectionGroupUtil.js'
+import { useI18n } from '../i18n/index.js'
+
+// 导入错误最多直接展示的条数，避免一次性刷屏。
+const MAX_VISIBLE_IMPORT_ERRORS = 5
 
 /**
- * 处理文件选择
+ * 处理文件选择。
+ *
+ * @param {Event} event - 文件选择事件
+ * @param {boolean} searchModeState - 当前是否处于搜索模式
  */
 export const handleImportFileSelect = async (event, searchModeState) => {
+    // 国际化文案读取函数：导入过程中的校验、错误和结果提示需要跟随当前语言。
+    const { t } = useI18n()
     const file = event.target.files[0]
+
     if (!file) {
         return
     }
 
-    // 验证文件类型
     if (!file.name.endsWith('.json') && file.type !== 'application/json') {
-        ElMessage.error('请选择 JSON 格式的文件')
+        ElMessage.error(t('utils.connectConfigImport.messages.selectJsonFile'))
         return
     }
 
     try {
-        // 读取文件内容
-        const fileContent = await readFileAsText(file)
+        const fileContent = await readFileAsText(file, t)
+        const importData = parseImportJson(fileContent, t)
 
-        // 解析JSON
-        let importData
-        try {
-            importData = JSON.parse(fileContent)
-        } catch (parseError) {
-            ElMessage.error('JSON 文件格式错误，请检查文件内容')
-            return
-        }
-
-        // 验证数据格式
         if (!Array.isArray(importData)) {
-            ElMessage.error('导入文件格式错误：数据必须是数组格式')
+            ElMessage.error(t('utils.connectConfigImport.messages.arrayRequired'))
             return
         }
 
         if (importData.length === 0) {
-            ElMessage.warning('导入文件为空')
+            ElMessage.warning(t('utils.connectConfigImport.messages.emptyFile'))
             return
         }
 
-        // 批量导入连接配置
-        await batchImportConnections(importData, searchModeState)
-
+        await batchImportConnections(importData, searchModeState, t)
     } catch (error) {
-        console.error('导入失败:', error)
-        ElMessage.error('导入失败: ' + (error.message || '未知错误'))
+        ElMessage.error(t('utils.connectConfigImport.messages.importFail', {
+            value: error.message || t('common.unknownError')
+        }))
+    } finally {
+        // 清空 input value，允许用户重复选择同一个文件重新导入。
+        event.target.value = ''
     }
 }
 
 /**
- * 读取文件内容为文本
+ * 读取文件内容为文本。
+ *
+ * @param {File} file - 待读取文件
+ * @param {Function} t - 国际化翻译函数
+ * @returns {Promise<string>} 文件文本内容
  */
-const readFileAsText = (file) => {
+const readFileAsText = (file, t) => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader()
+
         reader.onload = (e) => resolve(e.target.result)
-        reader.onerror = (e) => reject(new Error('文件读取失败'))
+        reader.onerror = () => reject(new Error(t('utils.connectConfigImport.messages.readFail')))
         reader.readAsText(file)
     })
 }
 
 /**
- * 批量导入连接配置
+ * 解析导入 JSON。
+ *
+ * @param {string} fileContent - 文件文本内容
+ * @param {Function} t - 国际化翻译函数
+ * @returns {unknown} JSON 解析结果
  */
-const batchImportConnections = async (importData, searchModeState) => {
+const parseImportJson = (fileContent, t) => {
+    try {
+        return JSON.parse(fileContent)
+    } catch (error) {
+        throw new Error(t('utils.connectConfigImport.messages.invalidJson'))
+    }
+}
+
+/**
+ * 为重名连接生成新的名称。
+ *
+ * @param {string} baseName - 原连接名称
+ * @param {string} groupName - 分组名称
+ * @param {Function} t - 国际化翻译函数
+ * @returns {Promise<string>} 不重复的新名称
+ */
+const createUniqueImportName = async (baseName, groupName, t) => {
+    let retryCount = 0
+    const safeBaseName = baseName || t('utils.connectConfigImport.unnamedConnection')
+    const importSuffix = t('utils.connectConfigImport.importNameSuffix')
+    let newName = `${safeBaseName}_${importSuffix}_${Date.now()}`
+
+    while (await connectConfigRepository.existsByName(newName, groupName)) {
+        retryCount += 1
+        newName = `${safeBaseName}_${importSuffix}_${Date.now()}_${retryCount}`
+    }
+
+    return newName
+}
+
+/**
+ * 批量导入连接配置。
+ *
+ * @param {Array<Object>} importData - 导入数据
+ * @param {boolean} searchModeState - 当前是否处于搜索模式
+ * @param {Function} t - 国际化翻译函数
+ */
+const batchImportConnections = async (importData, searchModeState, t) => {
     let successCount = 0
-    let skipCount = 0
-    let errorCount = 0
+    let renameCount = 0
     const errors = []
 
-    // 逐个导入连接配置
-    for (let i = 0; i < importData.length; i++) {
-        const config = importData[i]
+    for (let index = 0; index < importData.length; index += 1) {
+        const config = importData[index]
 
         try {
-            // 移除id字段（如果存在），因为导入时会重新生成
-            const {id, created_at, updated_at, last_active_at, ...configData} = config
-
-            // 检查分组内是否已存在同名连接配置
-            const existing = await connectConfigRepository.existsByName(
-                configData.name || '',
-                configData.group_name || '默认分组'
-            )
+            // 移除数据库生成字段，导入时重新创建。
+            const { id, created_at, updated_at, last_active_at, ...configData } = config
+            const groupName = resolveConnectionGroupName(configData.group_name)
+            configData.group_name = groupName
+            const existing = await connectConfigRepository.existsByName(configData.name || '', groupName)
 
             if (existing) {
-                // 如果已存在，尝试重命名
-                let newName = `${configData.name}_导入_${Date.now()}`
-                let retryCount = 0
-
-                // 确保新名称不重复
-                while (await connectConfigRepository.existsByName(newName, configData.group_name || '默认分组')) {
-                    retryCount++
-                    newName = `${configData.name}_导入_${Date.now()}_${retryCount}`
-                }
-
-                configData.name = newName
-                skipCount++
+                configData.name = await createUniqueImportName(configData.name, groupName, t)
+                renameCount += 1
             }
 
-            // 创建连接配置
             await connectConfigRepository.create(configData)
-            successCount++
-
+            successCount += 1
         } catch (error) {
-            errorCount++
-            const errorMsg = `第 ${i + 1} 条配置导入失败: ${error.message || '未知错误'}`
-            errors.push(errorMsg)
-            console.error(errorMsg, config)
+            errors.push(t('utils.connectConfigImport.messages.itemImportFail', {
+                index: index + 1,
+                value: error.message || t('common.unknownError')
+            }))
         }
     }
 
-    // 显示导入结果
+    showImportResult(successCount, renameCount, errors, t)
+
     if (successCount > 0) {
-        let message = `成功导入 ${successCount} 个连接配置`
-        if (skipCount > 0) {
-            message += `，${skipCount} 个已重命名`
+        eventBus.emit(searchModeState ? 'search-connection' : 'load-connection')
+    }
+}
+
+/**
+ * 展示导入结果。
+ *
+ * @param {number} successCount - 成功数量
+ * @param {number} renameCount - 重命名数量
+ * @param {string[]} errors - 错误信息列表
+ * @param {Function} t - 国际化翻译函数
+ */
+const showImportResult = (successCount, renameCount, errors, t) => {
+    if (successCount > 0) {
+        let message = t('utils.connectConfigImport.messages.importSuccess', { value: successCount })
+
+        if (renameCount > 0) {
+            message += t('utils.connectConfigImport.messages.renameSummary', { value: renameCount })
         }
-        if (errorCount > 0) {
-            message += `，${errorCount} 个导入失败`
+
+        if (errors.length > 0) {
+            message += t('utils.connectConfigImport.messages.failSummary', { value: errors.length })
         }
+
         ElMessage.success(message)
     } else {
-        ElMessage.warning('没有成功导入任何配置')
+        ElMessage.warning(t('utils.connectConfigImport.messages.noSuccess'))
     }
 
-    // 如果有错误，显示详细信息
-    if (errors.length > 0) {
-        console.error('导入错误详情:', errors)
-        if (errors.length <= 5) {
-            errors.forEach(err => ElMessage.warning(err))
-        } else {
-            ElMessage.warning(`还有 ${errors.length - 5} 个错误，请查看控制台`)
-        }
-    }
+    errors.slice(0, MAX_VISIBLE_IMPORT_ERRORS).forEach((errorMessage) => {
+        ElMessage.warning(errorMessage)
+    })
 
-    // 刷新连接列表
-    if (successCount > 0) {
-        if (searchModeState) {
-            eventBus.emit('search-connection')
-        } else {
-            eventBus.emit('load-connection')
-        }
+    if (errors.length > MAX_VISIBLE_IMPORT_ERRORS) {
+        ElMessage.warning(t('utils.connectConfigImport.messages.moreErrors', {
+            value: errors.length - MAX_VISIBLE_IMPORT_ERRORS
+        }))
     }
 }

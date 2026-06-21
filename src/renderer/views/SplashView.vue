@@ -1,77 +1,81 @@
 <!--
     SplashView.vue
-    描述：启动页
+    描述：应用启动页。展示启动动画、产品名称、加载阶段文案和版本信息。
  -->
 <script setup>
-import {onMounted, ref} from "vue";
+import { onMounted, ref } from 'vue'
+import { useI18n } from '../i18n/index.js'
 
-// 响应式数据
-const appVersion = ref('加载中...');
-const loadingText = ref('正在初始化应用组件');
-const versionError = ref(false);
+// 国际化文案读取函数：驱动启动页版本状态和加载阶段文案。
+const { t } = useI18n()
+
+// 应用版本号：由 preload 从 main 进程获取，展示在启动页右下角。
+const appVersion = ref(t('splash.versionLoading'))
+
+// 启动阶段文案：跟随 simulateLoadingProcess 分阶段切换。
+const loadingText = ref(t('splash.loadingSteps.initializing'))
+
+// 版本获取失败标记：失败时使用错误色展示版本区域。
+const versionError = ref(false)
+
+// 启动页阶段文案：只影响视觉反馈，不参与真实初始化流程控制。
+const LOADING_TEXT_KEYS = [
+    'splash.loadingSteps.initializing',
+    'splash.loadingSteps.loadingUi',
+    'splash.loadingSteps.preparingConnection',
+    'splash.loadingSteps.completed'
+]
 
 onMounted(() => {
-    initContent();
-});
+    initContent()
+})
 
 /**
- * 启动页面初始化脚本
- * 负责获取应用版本信息并更新页面显示
+ * 初始化启动页内容。
+ * 从 preload 暴露的 appInfo API 获取版本信息，并播放启动阶段文案。
  */
 const initContent = async () => {
     try {
-        console.log('启动页面开始初始化...');
+        const version = await window.api.appInfo.getVersion()
+        const chromeVersion = await window.api.appInfo.getChromeVersion()
 
-        // 获取应用版本信息
-        const version = await window.api.appInfo.getVersion();
-        const chromeVersion = await window.api.appInfo.getChromeVersion();
+        appVersion.value = `${version} · Chrome ${chromeVersion}`
 
-        // 更新版本显示（包含 Chrome 版本，低调展示）
-        appVersion.value = `${version} · Chrome ${chromeVersion}`;
-        console.log(`版本信息: ${version} (Chrome ${chromeVersion})`);
-
-        // 模拟加载过程，提供更好的用户体验
-        await simulateLoadingProcess();
-
-        console.log('启动页面初始化完成');
+        await simulateLoadingProcess()
     } catch (error) {
-        console.error('启动页面初始化失败:', error);
-
-        // 错误处理 - 显示默认版本信息
-        appVersion.value = '应用启动失败...';
-        versionError.value = true;
+        appVersion.value = t('splash.startupFailed')
+        versionError.value = true
     }
-};
+}
 
 /**
- * 模拟加载过程
- * 提供视觉反馈，让用户知道应用正在启动
+ * 模拟启动加载阶段。
+ * 主进程负责真实窗口切换，这里只提供启动页视觉反馈。
  */
 const simulateLoadingProcess = async () => {
-    const loadingTexts = [
-        '正在初始化应用组件',
-        '正在加载用户界面',
-        '正在准备数据库连接',
-        '启动完成'
-    ];
+    for (const key of LOADING_TEXT_KEYS) {
+        loadingText.value = t(key)
 
-    for (let i = 0; i < loadingTexts.length; i++) {
-        loadingText.value = loadingTexts[i];
-
-        // 每个阶段等待 800ms
-        await new Promise(resolve => setTimeout(resolve, 800));
+        // 每个阶段停留 800ms，让启动页文案变化能被用户感知。
+        await new Promise((resolve) => setTimeout(resolve, 800))
     }
 }
 </script>
 
 <template>
-    <div class="splash-page no-select">
+    <!-- 启动画面背景容器：深色背景 + 圆角边框，模拟独立启动窗口。 -->
+    <div class="splash-page">
+        <!-- 产品 Logo 区域。 -->
         <div class="logo-container">
             <div class="logo">
-                <img src="../assets/img/logo.png" alt=""/>
+                <img src="../assets/logo.png" alt="" />
             </div>
         </div>
+
+        <!-- 产品名称：使用渐变文字作为启动页核心视觉焦点。 -->
         <div class="product-name">Other Redis Desktop Manager</div>
+
+        <!-- 加载动画区域：阶段文案 + 移动进度条。 -->
         <div class="loading-container">
             <div class="loading-text">
                 {{ loadingText }}<span class="loading-dots"></span>
@@ -80,6 +84,8 @@ const simulateLoadingProcess = async () => {
                 <div class="bar"></div>
             </div>
         </div>
+
+        <!-- 版本信息：右下角展示应用版本和 Chromium 版本。 -->
         <div class="version-container">
             <span :class="{ 'version-error': versionError }">{{ appVersion }}</span>
         </div>
@@ -98,7 +104,7 @@ const simulateLoadingProcess = async () => {
 .logo-container {
     display: flex;
     justify-content: center;
-    margin-top: 25px;
+    margin-top: 40px;
     margin-bottom: 30px;
 }
 
@@ -148,16 +154,21 @@ const simulateLoadingProcess = async () => {
 }
 
 @keyframes loadingDots {
-    0%, 20% {
+    0%,
+    20% {
         content: '';
     }
+
     40% {
         content: '.';
     }
+
     60% {
         content: '..';
     }
-    80%, 100% {
+
+    80%,
+    100% {
         content: '...';
     }
 }
@@ -185,10 +196,12 @@ const simulateLoadingProcess = async () => {
         transform: translateX(-100%);
         opacity: 0.8;
     }
+
     50% {
         transform: translateX(200%);
         opacity: 1;
     }
+
     100% {
         transform: translateX(400%);
         opacity: 0.8;
@@ -198,7 +211,7 @@ const simulateLoadingProcess = async () => {
 .version-container {
     font-size: 10px;
     display: flex;
-    justify-content: right;
+    justify-content: flex-end;
     color: rgba(255, 255, 255, 0.5);
     margin-right: 20px;
     margin-top: 5px;

@@ -1,131 +1,148 @@
 <!--
     MainView.vue
-    描述：主界面
+    描述：主界面布局容器。承载标题栏、侧边栏、拖拽分割线和主内容区。
+    职责：维护侧边栏状态、打开连接页签状态，并同步主进程推送的 Redis 连接状态。
  -->
 <script setup>
-import TitleBar from "../components/TitleBar.vue";
-import SideBar from "../components/SideBar.vue";
-import SideBarDrag from "../components/drag/SideBarDrag.vue";
-import {onMounted, onUnmounted, ref} from "vue";
-import {useBaseStateStore} from "../stores/modules/baseStateStore";
-import {storeToRefs} from "pinia";
-import Page from "../components/Page.vue";
-import Welcome from "../components/Welcome.vue";
-import {useConnectionConfigsStore} from "../stores/modules/connectionConfigsStore.js";
-import {eventBus} from "../utils/eventBus.js";
-import {useUserSettingsStore} from "../stores/modules/userSettingsStore.js";
+import { onMounted, onUnmounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
+import TitleBar from '../components/TitleBar.vue'
+import SideBar from '../components/SideBar.vue'
+import SideBarDrag from '../components/drag/SideBarDrag.vue'
+import Page from '../components/Page.vue'
+import Welcome from '../components/Welcome.vue'
+import { useBaseStateStore } from '../stores/modules/baseStateStore'
+import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
+import { useUserSettingsStore } from '../stores/modules/userSettingsStore.js'
+import { eventBus } from '../utils/eventBus.js'
 
-// 响应式数据
-const sideBarWidth = ref(300) // 侧边栏宽度
-const {searchModeState, exportModeState} = storeToRefs(useBaseStateStore())
-const {sideCollapseState, developerMode} = storeToRefs(useUserSettingsStore())
-const {openedConnectionConfigs, activeConnectionConfigId} = storeToRefs(useConnectionConfigsStore())
+// 侧边栏宽度：用户可以通过 SideBarDrag 拖拽调整。
+const sideBarWidth = ref(300)
+
+// 基础 UI 状态：侧边栏折叠时需要关闭搜索/导出模式。
+const { searchModeState, exportModeState } = storeToRefs(useBaseStateStore())
+
+// 用户设置状态：主布局读取侧边栏折叠状态和开发者模式开关。
+const { sideCollapseState, developerMode } = storeToRefs(useUserSettingsStore())
+
+// 连接页签状态：主内容区根据打开连接数量决定展示 Page 还是 Welcome。
+const { openedConnectionConfigs, activeConnectionConfigId } = storeToRefs(useConnectionConfigsStore())
+
+// Redis 连接状态监听解绑函数：组件卸载时必须释放 preload 注册的事件监听。
+let removeConnectionStatusListener = null
 
 onMounted(() => {
-    // 监听Redis连接状态变化
-    window.api.redis.onConnectionStatusChanged(handleConnectionStatusChanged)
-    // 初始化开发者模式，如果开启了开发者模式，则打开开发者模式
+    // 监听主进程推送的 Redis 连接状态变化，并同步到已打开连接对象上。
+    removeConnectionStatusListener = window.api.redis.onConnectionStatusChanged(handleConnectionStatusChanged)
+
+    // 根据用户设置恢复开发者模式快捷键状态。
     initDevelopMode()
-    // 监听关闭已打开的连接事件
+
+    // 注册跨组件事件，侧边栏、页签等组件会通过 eventBus 通知主布局。
     eventBus.on('close-opened-connection', closeOpenedConnection)
-    // 监听左侧菜单折叠状态
     eventBus.on('toggle-side-bar-collapse', toggleSideBarCollapse)
 })
 
 /**
- * 关闭已打开的连接
- * @param openedConnectionConfig
+ * 关闭已打开的连接页签。
+ *
+ * @param {Object} openedConnectionConfig - 待关闭的连接配置
  */
 const closeOpenedConnection = (openedConnectionConfig) => {
-    // 要关闭的连接ID
-    const oldConnectionId = openedConnectionConfig.id;
+    const oldConnectionId = openedConnectionConfig.id
+    const index = openedConnectionConfigs.value.findIndex((connect) => connect.id === oldConnectionId)
 
-    // 获取要删除的连接对象的索引位置
-    const index = openedConnectionConfigs.value.findIndex(connect => connect.id === oldConnectionId)
-
-    // 切换激活的连接，默认切换到被删除的前一个连接，如果不存在前一个连接，则切换到后一个连接，如果后一个不存在，则切换激活连接为0
     if (activeConnectionConfigId.value === oldConnectionId) {
-        // 优先切换到前一个连接（index - 1）
+        // 当前页签被关闭时，优先激活左侧页签，其次激活右侧页签。
         if (index > 0) {
-            // 前一个连接存在，切换到前一个
             activeConnectionConfigId.value = openedConnectionConfigs.value[index - 1].id
         } else if (index < openedConnectionConfigs.value.length - 1) {
-            // 前一个不存在，但后一个存在，切换到后一个
             activeConnectionConfigId.value = openedConnectionConfigs.value[index + 1].id
         } else {
-            // 前后都不存在，切换激活连接为空（0）
             activeConnectionConfigId.value = 0
         }
     }
 
-    // 删除已打开的连接
-    openedConnectionConfigs.value = openedConnectionConfigs.value.filter(connect => connect.id !== oldConnectionId)
+    openedConnectionConfigs.value = openedConnectionConfigs.value.filter((connect) => connect.id !== oldConnectionId)
 
-    // 关闭Redis连接
+    // 通知主进程断开底层 Redis 连接，避免 Electron 继续持有 socket。
     window.api.redis.disconnect(oldConnectionId)
 }
 
 /**
- * 监听Redis连接状态变化
+ * 同步 Redis 连接状态。
+ * 主进程连接状态变化通过 preload 通知 renderer，这里只更新已打开连接列表中的对应对象。
+ *
+ * @param {{connectionId:number|string, status:string}} data - 连接状态事件数据
  */
 const handleConnectionStatusChanged = (data) => {
-    console.log('连接状态变化', data)
-    // 使用 find 查找对应的连接对象，更新打开的连接对象
-    const connection = openedConnectionConfigs.value.find(connect => connect.id === data.connectionId);
+    const connection = openedConnectionConfigs.value.find((connect) => connect.id === data.connectionId)
+
     if (connection) {
-        // 直接更新响应式对象的属性，Vue 会自动触发视图更新
-        connection.status = data.status;
+        connection.status = data.status
     }
 }
 
 /**
- * 切换侧边栏折叠状态
+ * 切换侧边栏折叠状态。
+ * 折叠后关闭搜索和导出模式，避免折叠菜单仍保留不可见的操作状态。
  */
 const toggleSideBarCollapse = () => {
-    // 折叠侧边栏
     sideCollapseState.value = !sideCollapseState.value
+
     if (sideCollapseState.value) {
-        // 关闭搜索模式
         searchModeState.value = false
-        // 关闭导出模式
         exportModeState.value = false
     }
 }
 
 /**
- * 初始化开发模式
+ * 初始化开发者模式。
+ * 根据持久化设置恢复 DevTools 快捷键启用状态。
  */
 const initDevelopMode = async () => {
     if (developerMode.value) {
         await window.api.develop.openDevelopMode()
-    } else {
-        await window.api.develop.closeDevelopMode()
+        return
     }
+
+    await window.api.develop.closeDevelopMode()
 }
 
 onUnmounted(() => {
-    // 移除Redis连接状态变化监听器
-    window.api.redis.removeConnectionStatusListener()
+    // 释放 preload 注册的连接状态监听器。
+    removeConnectionStatusListener?.()
+
+    // 移除当前组件注册的事件总线监听，避免非 KeepAlive 场景重复注册。
+    eventBus.off('close-opened-connection', closeOpenedConnection)
+    eventBus.off('toggle-side-bar-collapse', toggleSideBarCollapse)
 })
 </script>
 
 <template>
-    <div class="main-page no-select">
+    <div class="main-page">
+        <!-- 顶部自定义标题栏。 -->
         <div class="header">
-            <TitleBar/>
+            <TitleBar />
         </div>
+
         <div class="container">
-            <div class="side" :class="{'is-collapsed': sideCollapseState}" :style="{width: sideBarWidth + 'px'}">
-                <SideBar/>
+            <!-- 左侧边栏：包含菜单主体和右侧拖拽分割线。 -->
+            <aside class="side" :class="{ 'is-collapsed': sideCollapseState }" :style="{ width: sideBarWidth + 'px' }">
+                <SideBar />
                 <div v-if="!sideCollapseState" class="drag">
-                    <SideBarDrag :sideBarWidth="sideBarWidth"
-                                 @update:sideBarWidth="newWidth => sideBarWidth = newWidth"/>
+                    <SideBarDrag
+                        :side-bar-width="sideBarWidth"
+                        @update:sideBarWidth="(newWidth) => sideBarWidth = newWidth"
+                    />
                 </div>
-            </div>
-            <div class="content">
-                <Page v-if="openedConnectionConfigs.length > 0"/>
-                <Welcome v-else/>
-            </div>
+            </aside>
+
+            <!-- 主内容区：有打开连接时展示连接工作区，否则展示欢迎页。 -->
+            <main class="content">
+                <Page v-if="openedConnectionConfigs.length > 0" />
+                <Welcome v-else />
+            </main>
         </div>
     </div>
 </template>
@@ -139,7 +156,7 @@ onUnmounted(() => {
     background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
 }
 
-/* 深色模式 */
+/* 暗色模式主背景：覆盖浅色渐变，和全局暗色主题保持一致。 */
 .dark .main-page {
     background: linear-gradient(135deg, #020202 40%, #636363 100%) !important;
 }
@@ -150,6 +167,7 @@ onUnmounted(() => {
     overflow: hidden;
 }
 
+/* 主布局容器：横向承载侧边栏和内容区，内部滚动交给各子区域处理。 */
 .container {
     flex: 1;
     display: flex;
@@ -164,9 +182,10 @@ onUnmounted(() => {
 
 .side.is-collapsed {
     width: 64px !important;
-    transition: width .2s ease-out;
+    transition: width 0.2s ease-out;
 }
 
+/* 侧边栏拖拽入口：居中贴在侧栏右侧，视觉上不占用菜单宽度。 */
 .drag {
     position: absolute;
     top: 50%;

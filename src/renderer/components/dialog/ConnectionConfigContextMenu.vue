@@ -3,12 +3,16 @@
     描述：连接配置上下文菜单组件（性能优化：所有菜单项共用一个下拉菜单）
 -->
 <script setup>
-import {CodeOne, Delete, Edit, MinusTheTop, MoveOne, Plus} from "@icon-park/vue-next";
-import {computed} from "vue";
-import {ElMessage} from "element-plus";
-import {eventBus} from "../../utils/eventBus.js";
+import { CodeOne, Delete, Edit, MinusTheTop, MoveOne, Plus } from '@icon-park/vue-next'
+import { computed } from 'vue'
+import { ElMessage } from 'element-plus'
+import { eventBus } from '../../utils/eventBus.js'
+import { useI18n } from '../../i18n/index.js'
 
-// Props
+// 国际化文案读取函数：驱动右键菜单项、语言宽度和兜底操作提示。
+const { language, t } = useI18n()
+
+// 组件入参：由侧边栏传入当前菜单类型、目标数据和虚拟触发元素。
 const props = defineProps({
     visible: {
         type: Boolean,
@@ -28,16 +32,19 @@ const props = defineProps({
     }
 })
 
-// Emits
+// 对外事件：同步上下文菜单显示状态。
 const emit = defineEmits(['update:visible'])
 
-// 计算属性
+// Popover 双向绑定：透传 v-model:visible 给父组件统一控制。
 const contextMenuVisible = computed({
     get: () => props.visible,
     // update:visible 是一个特殊的 Vue 约定写法，用于实现自定义组件的双向绑定
     // 会自动更新父组件的 v-model:visible 绑定的属性值
     set: value => emit('update:visible', value)
 })
+
+// 菜单宽度：中文保持原来的紧凑宽度，英文给长单词留出更多空间。
+const contextMenuWidth = computed(() => language.value === 'zh-CN' ? 180 : 200)
 
 /**
  * 处理上下文菜单的命令
@@ -69,7 +76,7 @@ const handleContextMenuCommand = async (command) => {
             eventBus.emit('create-new-connection', props.menuItem)
             break
         default:
-            ElMessage.info(`执行操作: ${command}`)
+            ElMessage.info(t('dialogs.contextMenu.executeAction', { value: command }))
     }
 
     // 关闭上下文菜单
@@ -78,76 +85,75 @@ const handleContextMenuCommand = async (command) => {
 </script>
 
 <template>
-    <template>
-        <el-popover
-            v-model:visible="contextMenuVisible"
-            trigger="click"
-            :width="180"
-            :hide-after="10"
-            virtual-triggering
-            :virtual-ref="props.virtualRef"
-            popper-class="connection-config-context-menu-popover"
+    <!-- 虚拟触发上下文菜单：复用一个 Popover，避免每个菜单项都挂载一份右键菜单。 -->
+    <el-popover
+        v-model:visible="contextMenuVisible"
+        trigger="click"
+        :width="contextMenuWidth"
+        :hide-after="10"
+        virtual-triggering
+        :virtual-ref="props.virtualRef"
+        popper-class="connection-config-context-menu-popover"
+    >
+        <el-menu
+            v-if="menuType === 'group'"
+            @select="handleContextMenuCommand"
         >
-            <el-menu
-                v-if="menuType === 'group'"
-                @select="handleContextMenuCommand"
-            >
-                <el-menu-item index="rename-folder">
-                    <el-icon style="margin-right: 6px;">
-                        <Edit/>
-                    </el-icon>
-                    <span>重命名分组</span>
-                </el-menu-item>
-                <el-menu-item index="delete-folder">
-                    <el-icon style="margin-right: 6px;">
-                        <Delete/>
-                    </el-icon>
-                    <span>删除分组</span>
-                </el-menu-item>
-                <el-menu-item index="add-connection">
-                    <el-icon style="margin-right: 6px;">
-                        <Plus/>
-                    </el-icon>
-                    <span>添加连接</span>
-                </el-menu-item>
-            </el-menu>
-            <el-menu
-                v-else
-                @select="handleContextMenuCommand"
-            >
-                <el-menu-item index="edit-connection">
-                    <el-icon style="margin-right: 6px;">
-                        <Edit/>
-                    </el-icon>
-                    <span>编辑连接</span>
-                </el-menu-item>
-                <el-menu-item index="delete-connection">
-                    <el-icon style="margin-right: 6px;">
-                        <Delete/>
-                    </el-icon>
-                    <span>删除连接</span>
-                </el-menu-item>
-                <el-menu-item index="open-command">
-                    <el-icon style="margin-right: 6px;">
-                        <CodeOne/>
-                    </el-icon>
-                    <span>打开命令行</span>
-                </el-menu-item>
-                <el-menu-item index="move-to-folder">
-                    <el-icon style="margin-right: 6px;">
-                        <MoveOne/>
-                    </el-icon>
-                    <span>移动到其他分组</span>
-                </el-menu-item>
-                <el-menu-item index="copy-connect">
-                    <el-icon style="margin-right: 6px;">
-                        <MinusTheTop/>
-                    </el-icon>
-                    <span>复制链接</span>
-                </el-menu-item>
-            </el-menu>
-        </el-popover>
-    </template>
+            <el-menu-item index="rename-folder">
+                <el-icon style="margin-right: 6px;">
+                    <Edit/>
+                </el-icon>
+                <span>{{ t('dialogs.contextMenu.renameGroup') }}</span>
+            </el-menu-item>
+            <el-menu-item index="delete-folder">
+                <el-icon style="margin-right: 6px;">
+                    <Delete/>
+                </el-icon>
+                <span>{{ t('dialogs.contextMenu.deleteGroup') }}</span>
+            </el-menu-item>
+            <el-menu-item index="add-connection">
+                <el-icon style="margin-right: 6px;">
+                    <Plus/>
+                </el-icon>
+                <span>{{ t('dialogs.contextMenu.addConnection') }}</span>
+            </el-menu-item>
+        </el-menu>
+        <el-menu
+            v-else
+            @select="handleContextMenuCommand"
+        >
+            <el-menu-item index="edit-connection">
+                <el-icon style="margin-right: 6px;">
+                    <Edit/>
+                </el-icon>
+                <span>{{ t('dialogs.contextMenu.editConnection') }}</span>
+            </el-menu-item>
+            <el-menu-item index="delete-connection">
+                <el-icon style="margin-right: 6px;">
+                    <Delete/>
+                </el-icon>
+                <span>{{ t('dialogs.contextMenu.deleteConnection') }}</span>
+            </el-menu-item>
+            <el-menu-item index="open-command">
+                <el-icon style="margin-right: 6px;">
+                    <CodeOne/>
+                </el-icon>
+                <span>{{ t('dialogs.contextMenu.openCommand') }}</span>
+            </el-menu-item>
+            <el-menu-item index="move-to-folder">
+                <el-icon style="margin-right: 6px;">
+                    <MoveOne/>
+                </el-icon>
+                <span>{{ t('dialogs.contextMenu.moveToGroup') }}</span>
+            </el-menu-item>
+            <el-menu-item index="copy-connect">
+                <el-icon style="margin-right: 6px;">
+                    <MinusTheTop/>
+                </el-icon>
+                <span>{{ t('dialogs.contextMenu.copyConnection') }}</span>
+            </el-menu-item>
+        </el-menu>
+    </el-popover>
 </template>
 
 <style>

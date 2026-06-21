@@ -1,24 +1,24 @@
 <!--
     SideBarDrag.vue
-    描述：边栏拖拽组件
+    描述：旧版侧边栏宽度拖拽手柄。负责把鼠标横向位移转换为侧边栏像素宽度。
  -->
 <script setup>
-import {ref} from "vue";
+import { onUnmounted, ref } from 'vue'
 
-// Props
+// 组件入参：接收当前侧边栏宽度，拖拽时基于这个值计算新宽度。
 const props = defineProps({
     sideBarWidth: {
         type: Number
     }
 })
 
-// Emits
+// 对外事件：把计算后的侧边栏宽度同步给父组件。
 const emit = defineEmits(['update:sideBarWidth'])
 
-// 响应式数据
-const isDragging = ref(false)      // 拖拽状态
-const startX = ref(0)              // 鼠标按下时X坐标
-const startWidth = ref(0)          // 鼠标按下的时候，侧边栏宽度
+// 拖拽状态：记录按下时的鼠标位置和宽度，移动时按差值计算。
+const isDragging = ref(false)
+const startX = ref(0)
+const startWidth = ref(0)
 
 /**
  * 开始拖拽
@@ -61,15 +61,22 @@ const stopResize = () => {
     document.removeEventListener('mousemove', handleResize)
     document.removeEventListener('mouseup', stopResize)
 }
+
+onUnmounted(() => {
+    // 组件销毁时兜底释放拖拽监听，避免鼠标事件遗留在 document 上。
+    stopResize()
+})
 </script>
 
 <template>
+    <!-- 拖拽热区：父组件决定是否展示，本组件只负责交互。 -->
     <div class="side-bar-drag">
         <div class="drag-line" @mousedown="startResize"></div>
     </div>
 </template>
 
 <style scoped>
+/* 拖拽线：保持窄热区，hover/active 时通过颜色反馈可拖拽状态。 */
 .drag-line {
     width: 4px;
     height: 40px;

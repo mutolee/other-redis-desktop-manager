@@ -1,25 +1,27 @@
 <!--
-  设置抽屉组件
-  描述：以 el-drawer 展示设置内容，可在任意位置通过 v-model 复用
+    SettingsDrawer.vue
+    描述：系统设置抽屉。管理主题、主题色、侧边栏、连接超时、关闭行为和开发者模式等用户偏好。
 -->
 <script setup>
-import {Check, LinkThree, More, SettingTwo, Theme} from '@icon-park/vue-next';
-import {computed, ref} from "vue";
-import {storeToRefs} from "pinia";
-import {useUserSettingsStore} from "../../stores/modules/userSettingsStore.js";
-import {ElMessage, ElMessageBox} from "element-plus";
+import { Check, LinkThree, More, SettingTwo, Theme } from '@icon-park/vue-next'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { storeToRefs } from 'pinia'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { applyThemeTransition } from '../../utils/themeTransition.js'
+import { useI18n } from '../../i18n/index.js'
+import { useUserSettingsStore } from '../../stores/modules/userSettingsStore.js'
 
-// Props
+// 组件入参：由标题栏或其他入口控制设置抽屉显示状态。
 const props = defineProps({
     visible: {
         type: Boolean
     }
 })
 
-// Emits
+// 对外事件：同步 v-model:visible。
 const emit = defineEmits(['update:visible'])
 
-// 响应式数据
+// 抽屉可见性代理：把 Element Plus Drawer 的 v-model 透传给父组件。
 const drawerVisible = computed({
     get: () => props.visible,
     // update:visible 是一个特殊的 Vue 约定写法，用于实现自定义组件的双向绑定
@@ -27,8 +29,23 @@ const drawerVisible = computed({
     set: value => emit('update:visible', value)
 })
 
-// 获取用户设置 store
+// 用户设置 store：设置抽屉中的所有配置项都直接读写该 store。
 const userSettingsStore = useUserSettingsStore()
+// 国际化文案：设置抽屉是语言切换的入口，需要优先接入 i18n。
+const { t } = useI18n()
+
+// 记录最后点击位置，用于 View Transitions 动画圆心
+let lastClickX = 0
+let lastClickY = 0
+
+const onMousedown = (e) => {
+    lastClickX = e.clientX
+    lastClickY = e.clientY
+}
+
+onMounted(() => document.addEventListener('mousedown', onMousedown))
+onUnmounted(() => document.removeEventListener('mousedown', onMousedown))
+
 const {
     theme,
     color,
@@ -39,29 +56,38 @@ const {
     developerMode
 } = storeToRefs(userSettingsStore)
 
-// 当前激活的标签页
+// 当前激活的设置标签页。
 const activeTab = ref('general')
 
-// 主题选项
-const themeOptions = [
-    {label: '浅色', value: 'light'},
-    {label: '深色', value: 'dark'}
-]
+// 当前应用版本：从 main 进程读取，避免设置页写死版本号。
+const currentVersion = ref('1.0.0')
 
-// 颜色选项
-const colorOptions = [
-    {label: '默认', value: 'default', color: '#409EFF'},
-    {label: '优雅粉', value: 'pink', color: '#E91E63'},
-    {label: '商务紫', value: 'purple', color: '#673AB7'},
-    {label: '活力橙', value: 'orange', color: '#FF9800'},
-    {label: '清新绿', value: 'green', color: '#4CAF50'},
-    {label: '商务黑', value: 'business', color: '#2C3E50'},
-    {label: '靛青蓝', value: 'cyan', color: '#00BCD4'},
-    {label: '咖啡棕', value: 'brown', color: '#8B4513'},
-    {label: '科技蓝', value: 'blue', color: '#1E88E5'},
-]
+// 更新检查状态：控制设置页按钮 loading，避免重复点击。
+const checkingUpdate = ref(false)
 
-// 语言选项
+// 设置左侧 Tabs 宽度：中文紧凑显示，英文为较长标签预留空间。
+const settingsTabWidth = computed(() => language.value === 'en-US' ? '130px' : '100px')
+
+// 主题选项：浅色/深色，切换时使用 View Transition 动画。
+const themeOptions = computed(() => [
+    { label: t('settings.themeLight'), value: 'light' },
+    { label: t('settings.themeDark'), value: 'dark' }
+])
+
+// 主题色选项：用于切换 Element Plus 主题色变量。
+const colorOptions = computed(() => [
+    { label: t('settings.colors.default'), value: 'default', color: '#409EFF' },
+    { label: t('settings.colors.pink'), value: 'pink', color: '#E91E63' },
+    { label: t('settings.colors.purple'), value: 'purple', color: '#673AB7' },
+    { label: t('settings.colors.orange'), value: 'orange', color: '#FF9800' },
+    { label: t('settings.colors.green'), value: 'green', color: '#4CAF50' },
+    { label: t('settings.colors.business'), value: 'business', color: '#2C3E50' },
+    { label: t('settings.colors.cyan'), value: 'cyan', color: '#00BCD4' },
+    { label: t('settings.colors.brown'), value: 'brown', color: '#8B4513' },
+    { label: t('settings.colors.blue'), value: 'blue', color: '#1E88E5' }
+])
+
+// 语言选项：切换后会更新 Element Plus 内置文案和已接入 i18n 的业务文案。
 const languageOptions = [
     {label: '简体中文', value: 'zh-CN'},
     {label: 'English', value: 'en-US'}
@@ -78,14 +104,18 @@ const closeDrawer = () => {
  * 处理主题变更
  */
 const handleThemeChange = (value) => {
-    userSettingsStore.setTheme(value)
+    applyThemeTransition(() => {
+        userSettingsStore.setTheme(value)
+    }, { clientX: lastClickX, clientY: lastClickY })
 }
 
 /**
  * 处理颜色变更
  */
 const handleColorChange = (value) => {
-    userSettingsStore.setColor(value)
+    applyThemeTransition(() => {
+        userSettingsStore.setColor(value)
+    }, { clientX: lastClickX, clientY: lastClickY })
 }
 
 /**
@@ -112,20 +142,106 @@ const handleDeveloperModeChange = async (value) => {
 const handleReset = async () => {
     try {
         await ElMessageBox.confirm(
-            '确定要重置所有设置为默认值吗？此操作不可撤销。',
-            '确认重置',
+            t('settings.resetConfirmMessage'),
+            t('settings.resetConfirmTitle'),
             {
-                confirmButtonText: '确定',
-                cancelButtonText: '取消',
+                confirmButtonText: t('common.confirm'),
+                cancelButtonText: t('common.cancel'),
                 type: 'warning'
             }
         )
         userSettingsStore.resetToDefaults()
-        ElMessage.success('设置已重置为默认值')
+        ElMessage.success(t('settings.resetSuccess'))
     } catch {
         // 用户取消操作
     }
 }
+
+/**
+ * 格式化 GitHub Release 更新说明。
+ * 只在弹窗中展示前几段内容，避免过长的 Release Notes 撑破确认框。
+ *
+ * @param {string} releaseNotes - GitHub Release body
+ * @returns {string} 适合确认弹窗展示的更新说明
+ */
+const formatReleaseNotes = (releaseNotes) => {
+    const normalizedNotes = String(releaseNotes || '').trim()
+
+    if (!normalizedNotes) {
+        return t('settings.update.noReleaseNotes')
+    }
+
+    return normalizedNotes.length > 800
+        ? `${normalizedNotes.slice(0, 800)}...`
+        : normalizedNotes
+}
+
+/**
+ * 手动检查 GitHub Release 更新。
+ * 有新版本时弹出确认框，用户点击更新后跳转到 GitHub Release 页面。
+ */
+const handleCheckUpdate = async () => {
+    if (checkingUpdate.value) {
+        return
+    }
+
+    checkingUpdate.value = true
+
+    try {
+        const result = await window.api.appInfo.checkUpdate()
+
+        if (!result.success) {
+            ElMessage.error(result.error || t('settings.update.checkFail'))
+            return
+        }
+
+        const updateInfo = result.data || {}
+        currentVersion.value = updateInfo.currentVersion || currentVersion.value
+
+        if (!updateInfo.hasUpdate) {
+            ElMessage.success(t('settings.update.noUpdate', { value: currentVersion.value }))
+            return
+        }
+
+        await ElMessageBox.confirm(
+            [
+                t('settings.update.foundMessage', {
+                    current: updateInfo.currentVersion,
+                    latest: updateInfo.latestVersion
+                }),
+                '',
+                t('settings.update.releaseNotesTitle'),
+                formatReleaseNotes(updateInfo.releaseNotes)
+            ].join('\n'),
+            t('settings.update.foundTitle'),
+            {
+                confirmButtonText: t('settings.update.updateNow'),
+                cancelButtonText: t('common.cancel'),
+                type: 'info'
+            }
+        )
+
+        const openResult = await window.api.mainWin.openExternal(updateInfo.releasePageUrl)
+
+        if (!openResult.success) {
+            ElMessage.error(openResult.error || t('settings.update.openReleaseFail'))
+        }
+    } catch (error) {
+        if (error !== 'cancel' && error !== 'close') {
+            ElMessage.error(error.message || t('settings.update.checkFail'))
+        }
+    } finally {
+        checkingUpdate.value = false
+    }
+}
+
+onMounted(async () => {
+    try {
+        currentVersion.value = await window.api.appInfo.getVersion()
+    } catch {
+        currentVersion.value = '1.0.0'
+    }
+})
 </script>
 
 <template>
@@ -145,38 +261,38 @@ const handleReset = async () => {
                 <el-icon class="drawer-header-icon">
                     <SettingTwo/>
                 </el-icon>
-                <el-text size="large">应用设置</el-text>
+                <el-text size="large">{{ t('settings.title') }}</el-text>
             </div>
         </template>
         <div class="drawer-content">
             <div class="content-wrapper">
-                <div class="content-left">
+                <div class="content-left" :style="{ '--settings-tab-width': settingsTabWidth }">
                     <el-tabs v-model="activeTab" tab-position="left" class="settings-tabs">
-                        <el-tab-pane label="常规" name="general">
+                        <el-tab-pane :label="t('settings.tabs.general')" name="general">
                             <template #label>
                                 <span class="tab-label">
-                                    <SettingTwo/>常规
+                                    <SettingTwo/>{{ t('settings.tabs.general') }}
                                 </span>
                             </template>
                         </el-tab-pane>
-                        <el-tab-pane label="外观" name="appearance">
+                        <el-tab-pane :label="t('settings.tabs.appearance')" name="appearance">
                             <template #label>
                                 <span class="tab-label">
-                                    <el-icon><Theme/></el-icon>外观
+                                    <el-icon><Theme/></el-icon>{{ t('settings.tabs.appearance') }}
                                 </span>
                             </template>
                         </el-tab-pane>
-                        <el-tab-pane label="连接" name="connection">
+                        <el-tab-pane :label="t('settings.tabs.connection')" name="connection">
                             <template #label>
                                 <span class="tab-label">
-                                    <el-icon><LinkThree/></el-icon>连接
+                                    <el-icon><LinkThree/></el-icon>{{ t('settings.tabs.connection') }}
                                 </span>
                             </template>
                         </el-tab-pane>
-                        <el-tab-pane label="其他" name="other">
+                        <el-tab-pane :label="t('settings.tabs.other')" name="other">
                             <template #label>
                                 <span class="tab-label">
-                                    <el-icon><More/></el-icon>其他
+                                    <el-icon><More/></el-icon>{{ t('settings.tabs.other') }}
                                 </span>
                             </template>
                         </el-tab-pane>
@@ -186,14 +302,14 @@ const handleReset = async () => {
                     <el-scrollbar>
                         <!-- 常规设置 -->
                         <div v-show="activeTab === 'general'" class="tab-content">
-                            <h3 class="section-title">常规设置</h3>
-                            <el-text type="info" size="small">配置应用的基本选项</el-text>
+                            <h3 class="section-title">{{ t('settings.generalTitle') }}</h3>
+                            <el-text type="info" size="small">{{ t('settings.generalDesc') }}</el-text>
                             <el-divider/>
                             <div class="settings-section">
                                 <div class="settings-item">
                                     <div class="settings-item-label">
-                                        <span>界面语言</span>
-                                        <span class="desc">选择应用的显示语言</span>
+                                        <span>{{ t('settings.language') }}</span>
+                                        <span class="desc">{{ t('settings.languageDesc') }}</span>
                                     </div>
                                     <el-select v-model="language" @change="handleLanguageChange" style="width: 200px">
                                         <el-option
@@ -206,15 +322,15 @@ const handleReset = async () => {
                                 </div>
                                 <div class="settings-item">
                                     <div class="settings-item-label">
-                                        <span>关闭时提示</span>
-                                        <span class="desc">关闭应用时是否显示确认提示</span>
+                                        <span>{{ t('settings.closePrompt') }}</span>
+                                        <span class="desc">{{ t('settings.closePromptDesc') }}</span>
                                     </div>
                                     <el-switch v-model="closeManagement.prompt"/>
                                 </div>
                                 <div class="settings-item">
                                     <div class="settings-item-label">
-                                        <span>关闭时最小化到托盘</span>
-                                        <span class="desc">关闭窗口时最小化到系统托盘，而不是退出应用</span>
+                                        <span>{{ t('settings.closeToTray') }}</span>
+                                        <span class="desc">{{ t('settings.closeToTrayDesc') }}</span>
                                     </div>
                                     <el-switch v-model="closeManagement.closeToTray"/>
                                 </div>
@@ -222,21 +338,21 @@ const handleReset = async () => {
                         </div>
                         <!-- 外观设置 -->
                         <div v-show="activeTab === 'appearance'" class="tab-content">
-                            <h3 class="section-title">外观设置</h3>
-                            <el-text type="info" size="small">配置应用的外观选项</el-text>
+                            <h3 class="section-title">{{ t('settings.appearanceTitle') }}</h3>
+                            <el-text type="info" size="small">{{ t('settings.appearanceDesc') }}</el-text>
                             <el-divider/>
                             <div class="settings-section">
                                 <div class="settings-item">
                                     <div class="settings-item-label">
-                                        <span>收缩菜单</span>
-                                        <span class="desc">设置左侧菜单栏是否收缩</span>
+                                        <span>{{ t('settings.sidebarCollapse') }}</span>
+                                        <span class="desc">{{ t('settings.sidebarCollapseDesc') }}</span>
                                     </div>
                                     <el-switch v-model="sideCollapseState"/>
                                 </div>
                                 <div class="settings-item">
                                     <div class="settings-item-label">
-                                        <span>主题</span>
-                                        <span class="desc">选择应用的主题模式</span>
+                                        <span>{{ t('settings.theme') }}</span>
+                                        <span class="desc">{{ t('settings.themeDesc') }}</span>
                                     </div>
                                     <el-radio-group v-model="theme" @change="handleThemeChange">
                                         <el-radio-button v-for="option in themeOptions" :key="option.value" :label="option.value">
@@ -246,8 +362,8 @@ const handleReset = async () => {
                                 </div>
                                 <div class="settings-item color">
                                     <div class="settings-item-label">
-                                        <span>颜色主题</span>
-                                        <span class="desc">选择应用的主色调</span>
+                                        <span>{{ t('settings.color') }}</span>
+                                        <span class="desc">{{ t('settings.colorDesc') }}</span>
                                     </div>
                                     <div class="color-select">
                                         <div
@@ -258,7 +374,7 @@ const handleReset = async () => {
                                             :style="{ backgroundColor: option.color }"
                                             @click="handleColorChange(option.value)"
                                         >
-                                            <el-text style="color: white;">{{ option.label }}</el-text>
+                                            <span class="color-label">{{ option.label }}</span>
                                             <el-icon v-if="color === option.value" class="check-icon">
                                                 <Check/>
                                             </el-icon>
@@ -269,14 +385,14 @@ const handleReset = async () => {
                         </div>
                         <!-- 连接设置 -->
                         <div v-show="activeTab === 'connection'" class="tab-content">
-                            <h3 class="section-title">连接设置</h3>
-                            <el-text type="info" size="small">配置应用的连接选项</el-text>
+                            <h3 class="section-title">{{ t('settings.connectionTitle') }}</h3>
+                            <el-text type="info" size="small">{{ t('settings.connectionDesc') }}</el-text>
                             <el-divider/>
                             <div class="settings-section">
                                 <div class="settings-item">
                                     <div class="settings-item-label">
-                                        <span>连接超时时间</span>
-                                        <span class="desc">Redis 连接超时时间（毫秒）</span>
+                                        <span>{{ t('settings.connectTimeout') }}</span>
+                                        <span class="desc">{{ t('settings.connectTimeoutDesc') }}</span>
                                     </div>
                                     <el-input-number
                                         v-model="connectionSettings.connectTimeout"
@@ -289,8 +405,8 @@ const handleReset = async () => {
                                 </div>
                                 <div class="settings-item">
                                     <div class="settings-item-label">
-                                        <span>命令超时时间</span>
-                                        <span class="desc">Redis 命令执行超时时间（毫秒）</span>
+                                        <span>{{ t('settings.commandTimeout') }}</span>
+                                        <span class="desc">{{ t('settings.commandTimeoutDesc') }}</span>
                                     </div>
                                     <el-input-number
                                         v-model="connectionSettings.commandTimeout"
@@ -303,8 +419,8 @@ const handleReset = async () => {
                                 </div>
                                 <div class="settings-item">
                                     <div class="settings-item-label">
-                                        <span>Key 扫描数量</span>
-                                        <span class="desc">SCAN 命令每次扫描的 Key 数量，值越大可能影响性能</span>
+                                        <span>{{ t('settings.scanCount') }}</span>
+                                        <span class="desc">{{ t('settings.scanCountDesc') }}</span>
                                     </div>
                                     <el-input-number
                                         v-model="connectionSettings.scanCount"
@@ -319,30 +435,35 @@ const handleReset = async () => {
                         </div>
                         <!-- 其他设置 -->
                         <div v-show="activeTab === 'other'" class="tab-content">
-                            <h3 class="section-title">其他设置</h3>
-                            <el-text type="info" size="small">配置应用的其他选项</el-text>
+                            <h3 class="section-title">{{ t('settings.otherTitle') }}</h3>
+                            <el-text type="info" size="small">{{ t('settings.otherDesc') }}</el-text>
                             <el-divider/>
                             <div class="settings-section">
                                 <div class="settings-item">
                                     <div class="settings-item-label">
-                                        <span>重置设置</span>
-                                        <span class="desc">将所有设置恢复为默认值</span>
+                                        <span>{{ t('settings.resetSettings') }}</span>
+                                        <span class="desc">{{ t('settings.resetSettingsDesc') }}</span>
                                     </div>
-                                    <el-button type="danger" @click="handleReset">重置为默认值</el-button>
+                                    <el-button type="danger" @click="handleReset">{{ t('common.reset') }}</el-button>
                                 </div>
                                 <div class="settings-item">
                                     <div class="settings-item-label">
-                                        <span>开发者模式</span>
-                                        <span class="desc">开启开发者模式，显示更多调试信息。<span v-if="developerMode">快捷键：Ctrl/Command + Shift + I</span></span>
+                                        <span>{{ t('settings.developerMode') }}</span>
+                                        <span class="desc">
+                                            {{ t('settings.developerModeDesc') }}
+                                            <span v-if="developerMode">{{ t('settings.developerShortcut') }}</span>
+                                        </span>
                                     </div>
                                     <el-switch v-model="developerMode" @change="handleDeveloperModeChange"/>
                                 </div>
                                 <div class="settings-item">
                                     <div class="settings-item-label">
-                                        <span>版本信息</span>
-                                        <span class="desc">V1.0.0</span>
+                                        <span>{{ t('settings.versionInfo') }}</span>
+                                        <span class="desc">V{{ currentVersion }}</span>
                                     </div>
-                                    <el-button>版本检查</el-button>
+                                    <el-button :loading="checkingUpdate" @click="handleCheckUpdate">
+                                        {{ t('settings.versionCheck') }}
+                                    </el-button>
                                 </div>
                             </div>
                         </div>
@@ -378,7 +499,9 @@ const handleReset = async () => {
 }
 
 .content-left {
+    width: var(--settings-tab-width, 100px);
     flex-shrink: 0;
+    overflow: hidden;
 }
 
 .content-right {
@@ -389,8 +512,30 @@ const handleReset = async () => {
 .settings-tabs .tab-label {
     display: flex;
     align-items: center;
-    gap: 5px;
-    width: 75px;
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-tabs .tab-label :deep(.i-icon),
+.settings-tabs .tab-label :deep(.el-icon) {
+    flex-shrink: 0;
+}
+
+/* 设置页左侧 Tabs：给英文标签预留稳定宽度，避免长单词撑破侧边栏。 */
+.settings-tabs :deep(.el-tabs__header) {
+    width: var(--settings-tab-width, 100px);
+    margin-right: 0;
+}
+
+.settings-tabs :deep(.el-tabs__item) {
+    justify-content: flex-start;
+    width: var(--settings-tab-width, 100px);
+    padding: 0 14px;
+    overflow: hidden;
 }
 
 .tab-content {
@@ -443,6 +588,7 @@ const handleReset = async () => {
 }
 
 .color-item {
+    position: relative;
     width: 80px;
     height: 80px;
     border-radius: 6px;
@@ -452,6 +598,7 @@ const handleReset = async () => {
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 8px;
 }
 
 .color-item:hover {
@@ -463,7 +610,24 @@ const handleReset = async () => {
 }
 
 .color-item.is-active .check-icon {
+    position: absolute;
+    right: 5px;
+    top: 5px;
     color: #fff;
-    font-size: 20px;
+    font-size: 16px;
+}
+
+/* 颜色卡片文字：英文较长时限制为两行，保持卡片高度和对齐稳定。 */
+.color-label {
+    display: -webkit-box;
+    overflow: hidden;
+    color: #fff;
+    font-size: 13px;
+    line-height: 1.35;
+    text-align: center;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
 }
 </style>

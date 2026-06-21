@@ -1,67 +1,139 @@
 /**
- * 全局样式文件
- * 定义应用的基础样式、重置样式和通用组件样式
+ * 全局样式入口。
+ * 负责应用级基础变量、窗口级滚动控制、Element Plus 全局覆盖和主题色变量。
  */
+
+/* Section: 应用基础变量 */
 :root {
-    /* 标题栏背景色 */
+    /* 标题栏背景色：用于自定义标题栏、侧边栏折叠顶部区域等深色容器。 */
     --titlebar-bg-color: #303133;
 
-    /* 菜单背景色 */
+    /* Element Plus 菜单变量：统一侧边栏菜单和弹出菜单的暗色视觉。 */
     --el-menu-bg-color: #1d1e1f !important;
     --el-menu-text-color: #cccccc !important;
     --el-menu-hover-bg-color: color-mix(in srgb, var(--el-color-primary) 10%, transparent) !important;
 }
 
-/* ==================== 全局重置样式 ==================== */
+/* Section: 全局重置样式 */
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
 }
 
+/* 根节点：锁住浏览器窗口滚动，避免 Electron 外层页面出现滚动条。 */
 html {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
     font-size: 16px;
     line-height: 1.5;
 }
 
+/* 页面主体：禁用窗口级滚动回弹，具体滚动交给列表、表格、抽屉等内部容器。 */
 body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
     font-family: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
+/* Vue 应用根节点：撑满 Electron 窗口，避免全局滚动条从根节点冒出。 */
+#app {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* 表单与可编辑内容：全局禁选后，这些输入区域仍允许选择、复制和编辑文本。 */
+input,
+textarea,
+[contenteditable='true'],
+.el-input__inner,
+.el-textarea__inner {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* 禁选工具类：用于标题栏、按钮组等需要显式禁用文本选择的交互区域。 */
 .no-select {
-    /* 禁止鼠标选中 */
     -webkit-user-select: none;
     -moz-user-select: none;
     -ms-user-select: none;
     user-select: none;
 }
 
-/* ==================== El-menu 样式重写 ==================== */
-.el-menu.el-menu--popup {
-    max-width: 250px;
-    width: 250px;
+/* 全局焦点样式：去掉 Chromium 默认外框，组件自身的 hover/active 状态负责反馈。 */
+*:focus {
+    outline: none;
 }
 
-/* ==================== El-drawer 样式 ==================== */
+/* Section: 全局 textarea 滚动条 */
+/* textarea 滚动条：统一成接近 Element Plus Scrollbar 的细圆角样式。 */
+textarea,
+.el-textarea__inner {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--el-text-color-secondary) 36%, transparent) transparent;
+}
+
+/* WebKit 滚动条尺寸：Electron/Chromium 下生效，和 el-scrollbar 的视觉厚度接近。 */
+textarea::-webkit-scrollbar,
+.el-textarea__inner::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+/* WebKit 滚动条轨道：保持透明，让 textarea 背景自然透出。 */
+textarea::-webkit-scrollbar-track,
+.el-textarea__inner::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+/* WebKit 滚动条滑块：使用半透明文字色，视觉上贴近 Element Plus 滚动条。 */
+textarea::-webkit-scrollbar-thumb,
+.el-textarea__inner::-webkit-scrollbar-thumb {
+    border-radius: 10px;
+    background-color: color-mix(in srgb, var(--el-text-color-secondary) 36%, transparent);
+}
+
+/* WebKit 滚动条滑块悬浮态：鼠标靠近时略微加深，提升可感知性。 */
+textarea::-webkit-scrollbar-thumb:hover,
+.el-textarea__inner::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--el-text-color-secondary) 54%, transparent);
+}
+
+/* Section: Element Plus 全局覆盖 */
+/* 弹出菜单：限制宽度，避免长连接名或长命令撑开浮层。 */
+.el-menu.el-menu--popup {
+    width: 250px;
+    max-width: 250px;
+}
+
+/* 抽屉头部：压缩 Element Plus 默认间距，让业务内容更贴合自定义布局。 */
 .el-drawer__header {
     margin-bottom: 0 !important;
     padding-bottom: 20px !important;
 }
 
+/* 抽屉主体：由业务组件内部控制滚动和边距，避免双层滚动条。 */
 .el-drawer__body {
     padding: 0 !important;
     overflow: hidden !important;
 }
 
-/* ==================== 暗黑模式 ==================== */
+/* Section: 暗黑模式基础覆盖 */
 html.dark {
-    /* 暗黑模式，box阴影，如drawer的阴影 */
+    /* 暗黑模式阴影：用于 Drawer 等浮层，增强深色背景下的层次感。 */
     --el-box-shadow-dark: 0px 12px 32px 4px rgba(0, 0, 0, 0.36), 0px 8px 20px rgba(0, 0, 0, 0.72) !important;
-    /* 暗黑模式，背景色 */
+
+    /* 暗黑模式背景：统一 Element Plus 基础背景色。 */
     --el-bg-color: #202020 !important;
 }
 
-/* ==================== 科技蓝 ==================== */
+/* Section: 主题色：科技蓝 */
 html.blue {
     --el-color-primary: #1E88E5;
     --el-color-primary-light-3: #64b5f6;
@@ -77,7 +149,7 @@ html.blue.dark {
     --el-color-primary-light-9: #1e2635;
 }
 
-/* ==================== 商务紫 ==================== */
+/* Section: 主题色：商务紫 */
 html.purple {
     --el-color-primary: #673AB7;
     --el-color-primary-light-3: #9575cd;
@@ -93,7 +165,7 @@ html.purple.dark {
     --el-color-primary-light-9: #221a2d;
 }
 
-/* ==================== 活力橙 ==================== */
+/* Section: 主题色：活力橙 */
 html.orange {
     --el-color-primary: #FF9800;
     --el-color-primary-light-3: #ffb74d;
@@ -109,7 +181,7 @@ html.orange.dark {
     --el-color-primary-light-9: #332a1d;
 }
 
-/* ==================== 清新绿 ==================== */
+/* Section: 主题色：清新绿 */
 html.green {
     --el-color-primary: #4CAF50;
     --el-color-primary-light-3: #81c784;
@@ -125,7 +197,7 @@ html.green.dark {
     --el-color-primary-light-9: #1e2820;
 }
 
-/* ==================== 优雅粉 ==================== */
+/* Section: 主题色：优雅粉 */
 html.pink {
     --el-color-primary: #E91E63;
     --el-color-primary-light-3: #f06292;
@@ -141,7 +213,7 @@ html.pink.dark {
     --el-color-primary-light-9: #2d1f2d;
 }
 
-/* ==================== 商务黑 ==================== */
+/* Section: 主题色：商务黑 */
 html.business {
     --el-color-primary: #2C3E50;
     --el-color-primary-light-3: #5d6d7e;
@@ -157,7 +229,7 @@ html.business.dark {
     --el-color-primary-light-9: #131a21;
 }
 
-/* ==================== 靛青蓝 ==================== */
+/* Section: 主题色：靛青蓝 */
 html.cyan {
     --el-color-primary: #00BCD4;
     --el-color-primary-light-3: #62c7c1;
@@ -173,7 +245,7 @@ html.cyan.dark {
     --el-color-primary-light-9: #132526;
 }
 
-/* ====================  咖啡棕 ==================== */
+/* Section: 主题色：咖啡棕 */
 html.brown {
     --el-color-primary: #8B4513;
     --el-color-primary-light-3: #b08968;
