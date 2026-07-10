@@ -12,7 +12,7 @@ import { eventBus } from '../../utils/eventBus.js'
 import { connectConfigFormData } from '../../utils/connectConfigFormData.js'
 import { connectConfigFormValidate, createConnectConfigFormRules } from '../../utils/connectConfigFormValidate.js'
 import { mergeConnectionRuntimeSettings } from '../../utils/redisConnectionConfigUtil.js'
-import { DEFAULT_GROUP_NAME, normalizeConnectionGroupName, resolveConnectionGroupName } from '../../utils/connectionGroupUtil.js'
+import { normalizeConnectionGroupName } from '../../utils/connectionGroupUtil.js'
 import { useBaseStateStore } from '../../stores/modules/baseStateStore.js'
 import { useConnectionConfigsStore } from '../../stores/modules/connectionConfigsStore.js'
 import { useUserSettingsStore } from '../../stores/modules/userSettingsStore.js'
@@ -66,7 +66,7 @@ const loadConnectionConfigData = () => {
     // 将连接配置数据填充到表单
     Object.assign(formData, {
         // 基础信息
-        group_name: resolveConnectionGroupName(config.group_name),
+        group_name: normalizeConnectionGroupName(config.group_name),
         name: config.name || '',
         host: config.host || 'localhost',
         port: config.port || 6379,
@@ -126,11 +126,11 @@ const formRules = computed(() => createConnectConfigFormRules(t))
 // 表单标签宽度：中文保持紧凑，英文为长字段名预留空间。
 const formLabelWidth = computed(() => language.value === 'en-US' ? '135px' : '100px')
 
-// 分组输入框展示值：只做默认组归一化，不再按语言翻译系统组常量。
+// 分组输入框展示值：只裁剪首尾空白，不自动回填默认组，清空后交给必填校验提示用户。
 const groupNameDisplay = computed({
-    get: () => resolveConnectionGroupName(formData.group_name),
+    get: () => normalizeConnectionGroupName(formData.group_name),
     set: value => {
-        formData.group_name = resolveConnectionGroupName(value)
+        formData.group_name = normalizeConnectionGroupName(value)
     }
 })
 
@@ -152,10 +152,6 @@ const handleGroupQuery = async (query, cb) => {
             }
         }
         let res = groupNames.map(formatGroupOption)
-        // 如果候选项中不包括系统默认组，则追加默认组常量。
-        if (!res.some(item => item.rawValue === DEFAULT_GROUP_NAME)) {
-            res.unshift(formatGroupOption(DEFAULT_GROUP_NAME))
-        }
         cb(res)
     } catch (error) {
         cb([])
@@ -168,8 +164,8 @@ const handleGroupQuery = async (query, cb) => {
  * @param {Object} item - autocomplete 候选项
  */
 const handleSelectGroup = (item) => {
-    // 选择候选项时统一归一化，避免历史默认组值重新写回表单。
-    formData.group_name = resolveConnectionGroupName(item.rawValue || item.value)
+    // 选择候选项时只写入真实分组名称，不额外注入系统默认组。
+    formData.group_name = normalizeConnectionGroupName(item.rawValue || item.value)
 }
 
 /**
