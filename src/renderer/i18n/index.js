@@ -241,7 +241,8 @@ const MESSAGES = {
             tips: {
                 sshUnavailable: 'SSH隧道功能暂未实现，功能开发ing，强行使用无效！',
                 sslUnavailable: 'SSL/TLS加密连接暂未实现，功能开发ing，强行使用无效！',
-                clusterUnavailable: '集群模式配置暂未实现，功能开发ing，强行使用无效！'
+                clusterUnavailable: '集群模式配置暂未实现，功能开发ing，强行使用无效！',
+                sentinelMasterPassword: '哨兵主节点的密码，如果为空，将使用基本信息中的密码。'
             },
             actions: {
                 test: '测试连接',
@@ -1020,7 +1021,8 @@ const MESSAGES = {
             tips: {
                 sshUnavailable: 'SSH tunnel is not implemented yet. Enabling it will not take effect.',
                 sslUnavailable: 'SSL/TLS connection is not implemented yet. Enabling it will not take effect.',
-                clusterUnavailable: 'Cluster mode is not implemented yet. Enabling it will not take effect.'
+                clusterUnavailable: 'Cluster mode is not implemented yet. Enabling it will not take effect.',
+                sentinelMasterPassword: 'Password of the Sentinel master node. If empty, the password from Basic will be used.'
             },
             actions: {
                 test: 'Test Connection',

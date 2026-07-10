@@ -4,7 +4,7 @@
  -->
 <script setup>
 import { computed, reactive, ref, watch } from 'vue'
-import { Clue, Edit, LinkThree, Lock, More, Selected } from '@icon-park/vue-next'
+import { Clue, Edit, Info, LinkThree, Lock, More, Selected } from '@icon-park/vue-next'
 import { ElMessage } from 'element-plus'
 import { storeToRefs } from 'pinia'
 import { connectConfigRepository } from '../../database/repositories/ConnectConfigRepository.js'
@@ -566,13 +566,22 @@ const handleCancel = () => {
                                 </el-form-item>
 
                                 <el-form-item :label="t('connectionDialog.fields.masterPassword')">
-                                    <el-input
-                                        v-model="formData.sentinel_master_pass"
-                                        type="password"
-                                        :placeholder="t('connectionDialog.placeholders.masterPassword')"
-                                        show-password
-                                        style="width: 300px"
-                                    />
+                                    <!-- 哨兵主节点密码：为空时后端会回退使用基础信息中的 Redis 密码。 -->
+                                    <div class="password-with-tip">
+                                        <el-input
+                                            v-model="formData.sentinel_master_pass"
+                                            type="password"
+                                            :placeholder="t('connectionDialog.placeholders.masterPassword')"
+                                            show-password
+                                            style="width: 300px"
+                                        />
+                                        <el-tooltip
+                                            :content="t('connectionDialog.tips.sentinelMasterPassword')"
+                                            placement="top"
+                                        >
+                                            <Info class="field-tip-icon" />
+                                        </el-tooltip>
+                                    </div>
                                 </el-form-item>
                             </template>
                         </div>
@@ -649,6 +658,25 @@ const handleCancel = () => {
 
 .content-header-switch {
     margin: 10px 0;
+}
+
+/* 密码提示区：让说明图标跟随输入框右侧展示，不改变表单行高度。 */
+.password-with-tip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.field-tip-icon {
+    display: inline-flex;
+    font-size: 18px;
+    color: var(--el-text-color-secondary);
+    cursor: help;
+    transform: translateY(1px);
+}
+
+.field-tip-icon:hover {
+    color: var(--el-color-primary);
 }
 
 .dialog-footer {
