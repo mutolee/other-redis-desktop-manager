@@ -14,12 +14,15 @@ const { t } = useI18n()
 // 用户设置 store：读取侧边栏折叠状态，控制底部入口是否展示文字。
 const { sideCollapseState } = storeToRefs(useUserSettingsStore())
 
+// 开源仓库地址：侧边栏底部 Open Source 入口点击后跳转到该地址。
+const OPEN_SOURCE_REPOSITORY_URL = 'https://github.com/mutolee/other-redis-desktop-manager'
+
 /**
  * 打开Github
  * @returns {Promise<void>}
  */
 const openGithub = async () => {
-    await window.api.mainWin.openExternal('https://github.com/')
+    await window.api.mainWin.openExternal(OPEN_SOURCE_REPOSITORY_URL)
 }
 </script>
 
