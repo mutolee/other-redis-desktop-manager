@@ -144,6 +144,8 @@ const MESSAGES = {
             update: {
                 foundTitle: '发现新版本',
                 foundMessage: '当前版本：V{current}\n最新版本：V{latest}',
+                currentVersion: '当前版本',
+                latestVersion: '最新版本',
                 releaseNotesTitle: '更新内容：',
                 noReleaseNotes: '该版本暂无更新说明。',
                 updateNow: '去更新',
@@ -923,6 +925,8 @@ const MESSAGES = {
             update: {
                 foundTitle: 'Update Available',
                 foundMessage: 'Current version: V{current}\nLatest version: V{latest}',
+                currentVersion: 'Current Version',
+                latestVersion: 'Latest Version',
                 releaseNotesTitle: 'Release notes:',
                 noReleaseNotes: 'No release notes for this version.',
                 updateNow: 'Update',

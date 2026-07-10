@@ -10,6 +10,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { applyThemeTransition } from '../../utils/themeTransition.js'
 import { useI18n } from '../../i18n/index.js'
 import { useUserSettingsStore } from '../../stores/modules/userSettingsStore.js'
+import UpdateCheckDialog from '../dialog/UpdateCheckDialog.vue'
 
 // 组件入参：由标题栏或其他入口控制设置抽屉显示状态。
 const props = defineProps({
@@ -64,6 +65,12 @@ const currentVersion = ref('1.0.0')
 
 // 更新检查状态：控制设置页按钮 loading，避免重复点击。
 const checkingUpdate = ref(false)
+
+// 更新弹窗状态：发现新版本后交给独立弹窗组件展示。
+const updateDialogVisible = ref(false)
+
+// 待展示的更新信息：由 main 进程从 GitHub Release 返回，传给更新弹窗组件。
+const updateDialogInfo = ref(null)
 
 // 设置左侧 Tabs 宽度：中文紧凑显示，英文为较长标签预留空间。
 const settingsTabWidth = computed(() => language.value === 'en-US' ? '130px' : '100px')
@@ -158,27 +165,8 @@ const handleReset = async () => {
 }
 
 /**
- * 格式化 GitHub Release 更新说明。
- * 只在弹窗中展示前几段内容，避免过长的 Release Notes 撑破确认框。
- *
- * @param {string} releaseNotes - GitHub Release body
- * @returns {string} 适合确认弹窗展示的更新说明
- */
-const formatReleaseNotes = (releaseNotes) => {
-    const normalizedNotes = String(releaseNotes || '').trim()
-
-    if (!normalizedNotes) {
-        return t('settings.update.noReleaseNotes')
-    }
-
-    return normalizedNotes.length > 800
-        ? `${normalizedNotes.slice(0, 800)}...`
-        : normalizedNotes
-}
-
-/**
  * 手动检查 GitHub Release 更新。
- * 有新版本时弹出确认框，用户点击更新后跳转到 GitHub Release 页面。
+ * 有新版本时把更新信息交给独立弹窗组件展示。
  */
 const handleCheckUpdate = async () => {
     if (checkingUpdate.value) {
@@ -203,33 +191,10 @@ const handleCheckUpdate = async () => {
             return
         }
 
-        await ElMessageBox.confirm(
-            [
-                t('settings.update.foundMessage', {
-                    current: updateInfo.currentVersion,
-                    latest: updateInfo.latestVersion
-                }),
-                '',
-                t('settings.update.releaseNotesTitle'),
-                formatReleaseNotes(updateInfo.releaseNotes)
-            ].join('\n'),
-            t('settings.update.foundTitle'),
-            {
-                confirmButtonText: t('settings.update.updateNow'),
-                cancelButtonText: t('common.cancel'),
-                type: 'info'
-            }
-        )
-
-        const openResult = await window.api.mainWin.openExternal(updateInfo.releasePageUrl)
-
-        if (!openResult.success) {
-            ElMessage.error(openResult.error || t('settings.update.openReleaseFail'))
-        }
+        updateDialogInfo.value = updateInfo
+        updateDialogVisible.value = true
     } catch (error) {
-        if (error !== 'cancel' && error !== 'close') {
-            ElMessage.error(error.message || t('settings.update.checkFail'))
-        }
+        ElMessage.error(error.message || t('settings.update.checkFail'))
     } finally {
         checkingUpdate.value = false
     }
@@ -472,6 +437,8 @@ onMounted(async () => {
             </div>
         </div>
     </el-drawer>
+    <!-- 更新提示弹窗：独立组件负责版本信息展示、Markdown 内容渲染和 Release 页面跳转。 -->
+    <UpdateCheckDialog v-model:visible="updateDialogVisible" :update-info="updateDialogInfo" />
 </template>
 
 <style scoped>
