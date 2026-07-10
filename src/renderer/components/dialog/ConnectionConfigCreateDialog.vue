@@ -178,6 +178,30 @@ const handleSelectGroup = (item) => {
 }
 
 /**
+ * 切换哨兵模式。
+ * 勾选哨兵时自动关闭集群模式；取消勾选时只关闭自身，保留用户手动选择空间。
+ *
+ * @param {boolean} checked - 哨兵模式是否被勾选
+ */
+const handleSentinelModeChange = (checked) => {
+    if (checked) {
+        formData.use_cluster = false
+    }
+}
+
+/**
+ * 切换集群模式。
+ * 勾选集群时自动关闭哨兵模式；取消勾选时只关闭自身，满足两项都不启用的单机配置。
+ *
+ * @param {boolean} checked - 集群模式是否被勾选
+ */
+const handleClusterModeChange = (checked) => {
+    if (checked) {
+        formData.use_sentinel = false
+    }
+}
+
+/**
  * 提交表单
  */
 const handleSubmit = async () => {
@@ -518,13 +542,13 @@ const handleCancel = () => {
                             <div class="content-header-switch">
                                 <el-checkbox
                                     v-model="formData.use_sentinel"
-                                    :disabled="formData.use_cluster"
+                                    @change="handleSentinelModeChange"
                                 >
                                     {{ t('connectionDialog.options.enableSentinel') }}
                                 </el-checkbox>
                                 <el-checkbox
                                     v-model="formData.use_cluster"
-                                    :disabled="formData.use_sentinel"
+                                    @change="handleClusterModeChange"
                                 >
                                     {{ t('connectionDialog.options.enableCluster') }}
                                 </el-checkbox>
