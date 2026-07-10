@@ -9,7 +9,7 @@ import { ElMessage } from 'element-plus'
 import { storeToRefs } from 'pinia'
 import { connectConfigRepository } from '../../database/repositories/ConnectConfigRepository.js'
 import { eventBus } from '../../utils/eventBus.js'
-import { DEFAULT_GROUP_NAME, normalizeConnectionGroupName } from '../../utils/connectionGroupUtil.js'
+import { normalizeConnectionGroupName } from '../../utils/connectionGroupUtil.js'
 import { useBaseStateStore } from '../../stores/modules/baseStateStore.js'
 import DialogTitle from '../common/DialogTitle.vue'
 import { useI18n } from '../../i18n/index.js'
@@ -76,11 +76,7 @@ const handleGroupQuery = async (query, cb) => {
     try {
         const groupNames = await connectConfigRepository.findAllGroups(query)
         let res = groupNames.map(name => ({value: normalizeConnectionGroupName(name)}))
-        // 如果 res 中不包括系统默认组，则追加默认组的真实存储值。
-        if (!res.some(item => item.value === DEFAULT_GROUP_NAME)) {
-            res.unshift({value: DEFAULT_GROUP_NAME})
-        }
-        // 过滤掉当前分组
+        // 联想只展示已有分组，并过滤掉当前分组；匹配不到时不额外追加默认分组。
         const currentGroupName = normalizeConnectionGroupName(props.connection?.group_name)
         res = res.filter(item => item.value !== currentGroupName)
         cb(res)
