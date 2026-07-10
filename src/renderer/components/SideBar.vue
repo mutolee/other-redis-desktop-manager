@@ -11,7 +11,6 @@ import { eventBus } from '../utils/eventBus.js'
 import { connectConfigRepository } from '../database/repositories/ConnectConfigRepository.js'
 import { handleDeleteConnectionConfig, handleDeleteFolder } from '../utils/connectConfigDeleteUtil.js'
 import { handleImportFileSelect } from '../utils/connectConfigImportUtil.js'
-import { DEFAULT_GROUP_NAME } from '../utils/connectionGroupUtil.js'
 import { mergeConnectionRuntimeSettings } from '../utils/redisConnectionConfigUtil.js'
 import { useBaseStateStore } from '../stores/modules/baseStateStore.js'
 import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
@@ -44,7 +43,7 @@ const { exportModeState, searchModeState } = storeToRefs(useBaseStateStore())
 const { connectionSettings } = storeToRefs(useUserSettingsStore())
 const fileInputRef = ref(null) // 导入文件输入框引用
 const connectCreateDialogVisible = ref(false)
-const defaultGroupName = ref(DEFAULT_GROUP_NAME) // 打开创建连接配置窗口的默认组名称
+const defaultGroupName = ref('') // 打开创建连接配置窗口时预填的分组名称，仅从具体分组入口创建时写入。
 const copyFromConnection = ref(null) // 复制的连接配置对象
 const editDialogVisible = ref(false) // 编辑连接配置对话框可见性
 const editConnectionConfig = ref(null) // 当前正在编辑的连接配置项
@@ -148,8 +147,8 @@ const searchConnection = async () => {
 const createNewConnection = (connectionConfig) => {
     // 检查是否是事件对象，如果不是事件对象，则表示传入了参数
     if (connectionConfig instanceof Event) {
-        // 如果是事件对象，使用系统默认组，表示创建新的连接配置。
-        defaultGroupName.value = DEFAULT_GROUP_NAME
+        // 顶部创建入口不预填分组，让用户主动输入或选择已有分组。
+        defaultGroupName.value = ''
         copyFromConnection.value = null
     } else {
         // 判断是否是字符串（分组名称）
@@ -362,7 +361,7 @@ const handleOpenCommand = async (connection) => {
         <ConnectionConfigCreateDialog v-model:visible="connectCreateDialogVisible"
                                       :default-group-name="defaultGroupName"
                                       :copy-from-connection-config="copyFromConnection"
-                                      @closed="() => {defaultGroupName = DEFAULT_GROUP_NAME; copyFromConnection = null}"/>
+                                      @closed="() => {defaultGroupName = ''; copyFromConnection = null}"/>
 
         <!-- 编辑连接配置对话框。 -->
         <ConnectionConfigEditDialog

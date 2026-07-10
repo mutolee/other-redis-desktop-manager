@@ -178,7 +178,6 @@ const MESSAGES = {
         connectionDialog: {
             createTitle: '创建新连接',
             editTitle: '编辑连接',
-            defaultGroup: 'Default Group',
             copySuffix: '副本',
             tipTitle: '提示',
             tabs: {
@@ -958,7 +957,6 @@ const MESSAGES = {
         connectionDialog: {
             createTitle: 'Create Connection',
             editTitle: 'Edit Connection',
-            defaultGroup: 'Default Group',
             copySuffix: 'Copy',
             tipTitle: 'Tip',
             tabs: {
