@@ -317,10 +317,10 @@ const MESSAGES = {
             },
             cpu: {
                 usage: '当前 CPU 使用率',
-                system: '系统 CPU',
-                user: '用户 CPU',
-                childSystem: '子进程系统 CPU',
-                childUser: '子进程用户 CPU',
+                system: '累计系统 CPU',
+                user: '累计用户 CPU',
+                childSystem: '子进程累计系统 CPU',
+                childUser: '子进程累计用户 CPU',
                 usageRate: '使用率'
             },
             table: {
@@ -1096,10 +1096,10 @@ const MESSAGES = {
             },
             cpu: {
                 usage: 'Current CPU Usage',
-                system: 'System CPU',
-                user: 'User CPU',
-                childSystem: 'Child System CPU',
-                childUser: 'Child User CPU',
+                system: 'Total System CPU',
+                user: 'Total User CPU',
+                childSystem: 'Child Total System CPU',
+                childUser: 'Child Total User CPU',
                 usageRate: 'Usage'
             },
             table: {

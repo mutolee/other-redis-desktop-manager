@@ -133,10 +133,10 @@ const memoryItems = computed(() => [
 // CPU 信息：展示累计 CPU 和本次采样计算出的近似使用率。
 const cpuItems = computed(() => [
     { label: t('redisInfo.cpu.usage'), value: `${serverInfo.value?.cpuUsage ?? 0}%` },
-    { label: t('redisInfo.cpu.system'), value: getInfoValue('used_cpu_sys') || '0' },
-    { label: t('redisInfo.cpu.user'), value: getInfoValue('used_cpu_user') || '0' },
-    { label: t('redisInfo.cpu.childSystem'), value: getInfoValue('used_cpu_sys_children') || '0' },
-    { label: t('redisInfo.cpu.childUser'), value: getInfoValue('used_cpu_user_children') || '0' }
+    { label: t('redisInfo.cpu.system'), value: formatSeconds(getInfoNumber('used_cpu_sys')) },
+    { label: t('redisInfo.cpu.user'), value: formatSeconds(getInfoNumber('used_cpu_user')) },
+    { label: t('redisInfo.cpu.childSystem'), value: formatSeconds(getInfoNumber('used_cpu_sys_children')) },
+    { label: t('redisInfo.cpu.childUser'), value: formatSeconds(getInfoNumber('used_cpu_user_children')) }
 ])
 
 // CPU 仪表盘：展示当前采样区间内的 CPU 使用率。
@@ -250,6 +250,32 @@ const formatBytes = (bytes) => {
     }
 
     return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
+}
+
+/**
+ * 将 Redis INFO 中的累计 CPU 秒数格式化为可读时间。
+ * @param {number} seconds Redis used_cpu_* 返回的累计 CPU 秒数
+ * @returns {string} 带单位的累计 CPU 时间
+ */
+const formatSeconds = (seconds) => {
+    const value = Number(seconds)
+    if (!Number.isFinite(value) || value <= 0) {
+        return '0 s'
+    }
+
+    if (value >= 86400) {
+        return `${(value / 86400).toFixed(2)} d`
+    }
+
+    if (value >= 3600) {
+        return `${(value / 3600).toFixed(2)} h`
+    }
+
+    if (value >= 60) {
+        return `${(value / 60).toFixed(2)} min`
+    }
+
+    return `${value.toFixed(2)} s`
 }
 
 /**
