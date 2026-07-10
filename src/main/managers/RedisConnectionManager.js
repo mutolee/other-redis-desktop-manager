@@ -100,7 +100,7 @@ class RedisConnectionManager {
 
     /**
      * 测试连接
-     * 创建临时连接 → ROLE 验证主节点身份 → DBSIZE 验证鉴权 → 返回延迟
+     * 创建临时连接 → DBSIZE 验证数据命令可用与鉴权 → 返回延迟
      * @param {Object} config - 连接配置
      * @returns {Promise<{success:boolean, message?:string, latency?:number, error?:string}>}
      */
@@ -118,13 +118,8 @@ class RedisConnectionManager {
         redis.on('error', (err) => { connErr = err })
         try {
             await redis.connect()
-            // 验证连接到的确实是主节点（非哨兵）
-            const roleInfo = await this.runWithCommandTimeout(config, () => redis.call('ROLE'), 'ROLE')
-            if (!roleInfo || roleInfo[0] !== 'master') {
-                await redis.quit()
-                return { success: false, error: tMain('redis.sentinelMasterMissing') }
-            }
-            // DBSIZE 要求完整鉴权，可验证密码是否正确（哨兵不支持 DBSIZE）
+            // 哨兵模式下 ioredis 会先通过 Sentinel 发现 Redis 数据节点，DBSIZE 实际在数据节点上执行。
+            // 如果普通模式误连到 Sentinel 端口，或数据节点密码不正确，DBSIZE 会失败并给出真实错误。
             await this.runWithCommandTimeout(config, () => redis.call('DBSIZE'), 'DBSIZE')
             const latency = Date.now() - startTime
             await redis.quit()
