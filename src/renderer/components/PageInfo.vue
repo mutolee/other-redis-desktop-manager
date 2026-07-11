@@ -40,15 +40,29 @@
                                     type="card"
                                     class="detail-tabs"
                                 >
-                                    <el-tab-pane
-                                        v-for="tab in detailTabs"
-                                        :key="tab.key"
-                                        :name="tab.key"
-                                        :label="tab.label"
-                                    />
-                                </el-tabs>
-                            </div>
-                        </template>
+                                     <el-tab-pane
+                                         v-for="tab in detailTabs"
+                                         :key="tab.key"
+                                         :name="tab.key"
+                                     >
+                                         <template #label>
+                                             <!-- 详情 tab 标题：左侧 Key 名称可省略，右侧关闭按钮常驻显示。 -->
+                                             <span class="detail-tab-label">
+                                                 <span class="detail-tab-title">{{ tab.label }}</span>
+                                                 <button
+                                                     class="detail-tab-close-btn"
+                                                     type="button"
+                                                     :title="t('keyDetail.actions.close')"
+                                                     @click.stop="closeDetailTab(tab.key)"
+                                                 >
+                                                     <CloseSmall />
+                                                 </button>
+                                             </span>
+                                         </template>
+                                     </el-tab-pane>
+                                 </el-tabs>
+                             </div>
+                         </template>
                         <el-card shadow="never" class="content-right">
                             <!-- 已打开详情内容：所有 tab 常驻挂载，切换时只隐藏/显示，避免重新加载 Redis 数据。 -->
                             <div
@@ -82,6 +96,7 @@
  * 负责根据连接状态切换页面主体，并承载左侧 Key 列表、右侧 Key 详情与中间拖拽分割线。
  */
 import { computed, ref, watch } from 'vue'
+import { CloseSmall } from '@icon-park/vue-next'
 import { storeToRefs } from 'pinia'
 import { useI18n } from '../i18n/index.js'
 import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
@@ -365,11 +380,66 @@ html.dark .detail-tabs {
 
 .detail-tabs:deep(.el-tabs__item) {
     border-bottom-color: var(--detail-tabs-border-color) !important;
+    max-width: 220px;
 }
 
 /* 右侧激活 tab：覆盖 Element Plus card tabs 默认底边框颜色，改为当前主题色。 */
 .detail-tabs:deep(.el-tabs__item.is-active) {
     border-bottom-color: var(--el-color-primary) !important;
+}
+
+/* 详情 tab 标题：Key 名称和关闭按钮同排，长 Key 名称省略，关闭按钮常驻右侧。 */
+.detail-tab-label {
+    display: inline-flex;
+    align-items: center;
+    max-width: 190px;
+    min-width: 0;
+    gap: 0;
+    vertical-align: middle;
+}
+
+.detail-tab-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.detail-tab-close-btn {
+    flex: 0 0 auto;
+    padding: 0;
+    margin-left: 8px;
+    border: none;
+    border-radius: 50%;
+    outline: none;
+    background: transparent;
+    color: var(--el-text-color-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.detail-tab-close-btn:hover {
+    background: #ff0000;
+    color: var(--el-color-white);
+}
+
+.detail-tab-close-btn:deep(.i-icon-close-small) {
+    width: 15px;
+    height: 15px;
+    font-size: 15px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.detail-tab-close-btn svg {
+    width: 15px;
+    height: 15px;
+    display: block;
 }
 
 /* 空状态：占据 tab 内容区域，避免无 tab 和有 tab 两种状态切换时高度抖动。 */
