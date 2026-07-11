@@ -8,6 +8,13 @@ import { CodeOne, Down as ArrowDownBold, Up as ArrowUpBold } from '@icon-park/vu
 import { ElMessage } from 'element-plus'
 import { storeToRefs } from 'pinia'
 import { matchedExample } from '../../utils/commandExamples.js'
+import {
+    buildDbOptions,
+    buildDbSizeMap,
+    DEFAULT_DATABASE_COUNT,
+    formatDbSize,
+    normalizeDatabaseCount
+} from '../../utils/redisDatabaseOptionUtil.js'
 import { formatRedisCommandResult, parseRedisCommandInput } from '../../utils/redisCommandLineUtil.js'
 import { mergeConnectionRuntimeSettings } from '../../utils/redisConnectionConfigUtil.js'
 import { useUserSettingsStore } from '../../stores/modules/userSettingsStore.js'
@@ -61,14 +68,11 @@ const commandConnection = ref(null)
 const commandSessionId = ref('')
 const lastSessionStatus = ref('')
 const dbValue = ref('0')
+const dbSizeMap = ref({})
+const databaseCount = ref(DEFAULT_DATABASE_COUNT)
 const isDrawerContentReady = ref(false)
-// 生成 Redis 数据库列表（默认 0-15），用于命令抽屉头部独立切库。
-const dbList = ref(
-    Array.from({length: 16}, (_, i) => ({
-        label: `DB ${i}`,
-        value: String(i)
-    }))
-)
+// DB 下拉选项：按命令面板独立连接读取到的数据库数量和 Keyspace 数量生成。
+const dbOptions = computed(() => buildDbOptions(databaseCount.value, dbSizeMap.value))
 // 命令提示信息：用于命令示例预览和 Tab 补全。
 const suggestion = ref('')
 const suggestionStyle = ref({})
@@ -132,6 +136,8 @@ const cleanupCommandSession = async () => {
     commandSessionId.value = ''
     commandConnection.value = null
     dbValue.value = '0'
+    dbSizeMap.value = {}
+    databaseCount.value = DEFAULT_DATABASE_COUNT
 
     if (!sessionId) {
         return
@@ -141,6 +147,28 @@ const cleanupCommandSession = async () => {
         await window.api.redis.disconnect(sessionId)
     } catch {
         // 关闭面板时不阻断 UI 收起；主进程仍会在应用退出时统一清理残留连接。
+    }
+}
+
+/**
+ * 同步命令面板 DBSize 信息。
+ * 命令抽屉使用独立 Redis 连接，因此 DB 数量和 Keyspace 也从当前命令会话读取。
+ */
+const fetchCommandServerInfo = async () => {
+    if (!commandSessionId.value || commandConnection.value?.status !== 'connected') {
+        return
+    }
+
+    try {
+        const result = await window.api.redis.getServerInfo(commandSessionId.value)
+
+        if (result.success && result.data) {
+            const currentDbIndex = Number(commandConnection.value?.db_index) || 0
+            databaseCount.value = normalizeDatabaseCount(result.data.databaseCount, currentDbIndex)
+            dbSizeMap.value = buildDbSizeMap(result.data.summary?.keyspace)
+        }
+    } catch {
+        // DBSize 只是头部辅助信息，读取失败不打断命令面板使用。
     }
 }
 
@@ -171,6 +199,8 @@ const createCommandSession = async () => {
         status: 'connecting'
     }
     dbValue.value = String(commandConnection.value.db_index ?? 0)
+    databaseCount.value = normalizeDatabaseCount(DEFAULT_DATABASE_COUNT, commandConnection.value.db_index ?? 0)
+    dbSizeMap.value = {}
     lastSessionStatus.value = 'connecting'
     appendSystemLine(t('commandDrawer.messages.connecting', { value: commandConnection.value.name }), 'info')
 
@@ -530,6 +560,7 @@ const handleDbValueChange = async (value) => {
             commandConnection.value.db_index = nextDbIndex
             dbValue.value = String(nextDbIndex)
             appendSystemLine(t('commandDrawer.messages.dbSwitched', { value: nextDbIndex }), 'success')
+            await fetchCommandServerInfo()
         } else {
             dbValue.value = String(oldDbIndex)
             appendSystemLine(t('commandDrawer.messages.dbSwitchFail', {
@@ -590,6 +621,7 @@ onMounted(() => {
             appendSystemLine(t('commandDrawer.messages.connected', {
                 value: commandConnection.value.db_index ?? 0
             }), 'success')
+            setTimeout(fetchCommandServerInfo, 300)
         }
 
         // 连接失败或异常关闭时，也在面板内显式反馈，而不只是依赖外部 toast。
@@ -635,11 +667,17 @@ onUnmounted(async () => {
                     @change="handleDbValueChange"
                 >
                     <el-option
-                        v-for="item in dbList"
+                        v-for="item in dbOptions"
                         :key="item.value"
                         :label="item.label"
                         :value="item.value"
-                    />
+                    >
+                        <!-- DB 下拉项：左侧显示 DB 名称，右侧显示命令会话当前读取到的 DBSize。 -->
+                        <div class="command-db-option-content">
+                            <span class="command-db-option-label">{{ item.label }}</span>
+                            <span class="command-db-option-size">({{ formatDbSize(item.size) }})</span>
+                        </div>
+                    </el-option>
                 </el-select>
                 <div class="drag">
                     <CommandDrawerDrag :drawerHeight="drawerHeight"
@@ -727,7 +765,7 @@ onUnmounted(async () => {
 }
 
 .drawer-header .drawer-db-select {
-    width: 96px;
+    width: 120px;
 }
 
 /* 命令抽屉头部的 DB 选择器：固定使用暗色风格，和命令面板整体暗背景保持一致。 */
@@ -1012,6 +1050,8 @@ onUnmounted(async () => {
 }
 
 .command-drawer-db-popper .el-select-dropdown__item {
+    display: flex;
+    padding-right: 10px;
     color: color-mix(in srgb, var(--el-color-white) 82%, transparent);
 }
 
@@ -1023,5 +1063,30 @@ onUnmounted(async () => {
 .command-drawer-db-popper .el-select-dropdown__item.is-selected {
     color: var(--el-color-primary);
     background: rgba(255, 255, 255, 0.08);
+}
+
+/* 命令抽屉 DB 下拉项：左侧 DB 名称，右侧显示当前会话读取到的 DBSize。 */
+.command-drawer-db-popper .command-db-option-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-width: 0;
+    gap: 12px;
+}
+
+.command-drawer-db-popper .command-db-option-label {
+    flex: 0 0 auto;
+}
+
+.command-drawer-db-popper .command-db-option-size {
+    min-width: 0;
+    overflow: hidden;
+    color: color-mix(in srgb, var(--el-color-white) 48%, transparent);
+    font-size: 12px;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 </style>

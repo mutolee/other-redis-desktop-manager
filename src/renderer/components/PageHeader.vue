@@ -6,10 +6,17 @@
 import { AddUser, CodeOne, Cpu, DashboardOne, Key, MenuFoldOne, MenuUnfoldOne, Refresh } from '@icon-park/vue-next'
 
 import { storeToRefs } from 'pinia'
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from '../i18n/index.js'
 import { eventBus } from '../utils/eventBus.js'
+import {
+    buildDbOptions,
+    buildDbSizeMap,
+    DEFAULT_DATABASE_COUNT,
+    formatDbSize,
+    normalizeDatabaseCount
+} from '../utils/redisDatabaseOptionUtil.js'
 import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
 import { useUserSettingsStore } from '../stores/modules/userSettingsStore.js'
 import RedisInfoDrawer from './drawer/RedisInfoDrawer.vue'
@@ -23,17 +30,16 @@ const { sideCollapseState } = storeToRefs(useUserSettingsStore())
 const { activeConnectionConfigId, currOpenedConnectionConfig } = storeToRefs(useConnectionConfigsStore())
 // 当前头部 DB 下拉框绑定值：需要和活动连接的 db_index 保持同步。
 const dbValue = ref('0');
+// 各 DB 的 Key 数量：来自 INFO Keyspace，用于 DB 下拉列表右侧展示 DBSize。
+const dbSizeMap = ref({})
+// Redis 实际数据库数量：优先来自后端 CONFIG GET databases，失败时保持默认 16。
+const databaseCount = ref(DEFAULT_DATABASE_COUNT)
 // Redis 连接状态监听解绑函数：避免页头组件重复挂载时累积同类监听。
 let removeConnectionStatusListener = null
 // Redis 详情抽屉显示状态：点击头部“更多”按钮后从右侧打开。
 const redisInfoDrawerVisible = ref(false)
-// 生成 Redis 数据库列表（默认 0-15）
-const dbList = ref(
-    Array.from({length: 16}, (_, i) => ({
-        label: `DB ${i}`,
-        value: String(i)
-    }))
-);
+// DB 下拉选项：按 Redis 实际数据库数量生成，并合并实时 Keyspace 数量。
+const dbOptions = computed(() => buildDbOptions(databaseCount.value, dbSizeMap.value))
 
 // 监听当前活动连接的 db_index：切换连接页签或切库后，同步更新头部下拉显示值。
 watch(
@@ -43,6 +49,24 @@ watch(
     },
     { immediate: true }
 )
+
+/**
+ * 同步 INFO Keyspace 中各 DB 的 Key 数量。
+ * Redis INFO 只返回非空 DB，未出现的 DB 在页面上按 0 展示。
+ */
+const updateDbSizeMap = (keyspace = []) => {
+    dbSizeMap.value = buildDbSizeMap(keyspace)
+}
+
+/**
+ * 同步 Redis 实际 DB 数量。
+ * 后端无法读取 CONFIG 时会返回默认 16，这里仍做一次前端兜底，保证下拉列表始终可用。
+ */
+const updateDatabaseCount = (count) => {
+    const currentDbIndex = Number(currOpenedConnectionConfig.value?.db_index) || 0
+
+    databaseCount.value = normalizeDatabaseCount(count, currentDbIndex)
+}
 
 /**
  * 数据库索引值改变事件
@@ -108,6 +132,8 @@ const fetchServerInfo = async () => {
     try {
         const result = await window.api.redis.getServerInfo(activeConnectionConfigId.value)
         if (result.success && result.data) {
+            updateDatabaseCount(result.data.databaseCount)
+            updateDbSizeMap(result.data.summary?.keyspace)
             // 格式化数字：1000 → 1K, 1000000 → 1M
             const fmt = (n) => n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n)
             currOpenedConnectionConfig.value.connection_count = fmt(result.data.connectedClients)
@@ -119,6 +145,21 @@ const fetchServerInfo = async () => {
         ElMessage.error(`${t('pageHeader.messages.fetchServerInfoFail')}: ${error.message || error}`)
     }
 }
+
+// 切换连接页签或连接状态变化时刷新 DBSize，避免下拉列表短暂展示上一个连接的 Keyspace。
+watch(
+    () => [activeConnectionConfigId.value, currOpenedConnectionConfig.value?.status],
+    ([, status]) => {
+        const currentDbIndex = Number(currOpenedConnectionConfig.value?.db_index) || 0
+        dbSizeMap.value = {}
+        databaseCount.value = Math.max(DEFAULT_DATABASE_COUNT, currentDbIndex + 1)
+
+        if (status === 'connected') {
+            setTimeout(fetchServerInfo, 0)
+        }
+    },
+    { immediate: true }
+)
 
 // 连接状态变化时自动获取服务器信息
 onMounted(() => {
@@ -156,13 +197,26 @@ onUnmounted(() => {
                 </el-breadcrumb>
             </div>
             <div class="menu-item">
-                <el-select v-model="dbValue" @change="handleDbValueChange" :disabled="currOpenedConnectionConfig.status !== 'connected'" size="small" style="width: 100px">
+                <el-select
+                    v-model="dbValue"
+                    popper-class="page-header-db-popper"
+                    :disabled="currOpenedConnectionConfig.status !== 'connected'"
+                    size="small"
+                    style="width: 120px"
+                    @change="handleDbValueChange"
+                >
                     <el-option
-                        v-for="item in dbList"
+                        v-for="item in dbOptions"
                         :key="item.value"
                         :label="item.label"
                         :value="item.value"
-                    />
+                    >
+                        <!-- DB 下拉项：左侧显示 DB 名称，右侧显示当前库 Key 数量。 -->
+                        <div class="db-option-content">
+                            <span class="db-option-label">{{ item.label }}</span>
+                            <span class="db-option-size">({{ formatDbSize(item.size) }})</span>
+                        </div>
+                    </el-option>
                 </el-select>
             </div>
         </div>
@@ -329,5 +383,35 @@ onUnmounted(() => {
     display: flex;
     gap: 5px;
     align-items: center;
+}
+
+/* DB 下拉项：左侧 DB 名称，右侧展示该库 Key 数量，保持列表扫描感。 */
+:global(.page-header-db-popper .el-select-dropdown__item) {
+    display: flex;
+    padding-right: 10px;
+}
+
+.db-option-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-width: 0;
+    gap: 12px;
+}
+
+.db-option-label {
+    flex: 0 0 auto;
+}
+
+.db-option-size {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 </style>

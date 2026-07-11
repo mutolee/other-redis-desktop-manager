@@ -5,6 +5,7 @@
 
 export const DEFAULT_CONNECT_TIMEOUT_MS = 10000
 export const DEFAULT_COMMAND_TIMEOUT_MS = 8000
+export const DEFAULT_DATABASE_COUNT = 16
 export const DEFAULT_PAGE_SIZE = 100
 export const REDIS_KEEP_ALIVE_MS = 30000
 
@@ -58,6 +59,44 @@ export const normalizePageCount = (count = DEFAULT_PAGE_SIZE, fallback = DEFAULT
 export const normalizeTimeout = (value, fallback) => {
     const timeout = Number(value)
     return Number.isFinite(timeout) && timeout > 0 ? timeout : fallback
+}
+
+/**
+ * 规范化 Redis 数据库数量。
+ * CONFIG GET databases 可能返回字符串，统一转成正整数，失败时使用调用方提供的兜底值。
+ * @param {number|string} value - Redis 配置中的 databases 值。
+ * @param {number} fallback - 读取失败或格式异常时的兜底数据库数量。
+ * @returns {number} 可用于生成 DB 选择列表的数据库数量。
+ */
+export const normalizeDatabaseCount = (value, fallback = DEFAULT_DATABASE_COUNT) => {
+    const databaseCount = Number(value)
+
+    return Number.isFinite(databaseCount) && databaseCount > 0
+        ? Math.floor(databaseCount)
+        : fallback
+}
+
+/**
+ * 解析 CONFIG GET databases 的返回值。
+ * ioredis 通常返回 ['databases', '16']，这里兼容对象形式，避免不同 Redis 客户端返回结构差异影响 UI。
+ * @param {Array|Object} configResult - Redis CONFIG GET databases 返回值。
+ * @param {number} fallback - 解析失败时使用的兜底数据库数量。
+ * @returns {number} Redis 配置的数据库数量。
+ */
+export const parseRedisConfigDatabases = (configResult, fallback = DEFAULT_DATABASE_COUNT) => {
+    if (Array.isArray(configResult)) {
+        const databaseKeyIndex = configResult.findIndex(item => String(item).toLowerCase() === 'databases')
+
+        if (databaseKeyIndex >= 0) {
+            return normalizeDatabaseCount(configResult[databaseKeyIndex + 1], fallback)
+        }
+    }
+
+    if (configResult && typeof configResult === 'object') {
+        return normalizeDatabaseCount(configResult.databases ?? configResult.DATABASES, fallback)
+    }
+
+    return fallback
 }
 
 /**

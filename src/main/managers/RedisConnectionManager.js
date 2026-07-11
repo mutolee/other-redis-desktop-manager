@@ -3,13 +3,16 @@ import { getMainWindow } from '../windows/mainWindow.js'
 import { createLogger } from '../utils/logger.js'
 import {
     DEFAULT_COMMAND_TIMEOUT_MS,
+    DEFAULT_DATABASE_COUNT,
     DEFAULT_PAGE_SIZE,
     normalizeConnectionId,
+    normalizeDatabaseCount,
     normalizeIndexRange,
     normalizeInfoPairs,
     normalizePageCount,
     normalizeStreamEntries,
-    normalizeTimeout
+    normalizeTimeout,
+    parseRedisConfigDatabases
 } from '../redis/redisDataUtils.js'
 import { buildRedisOptions } from '../redis/redisOptionsFactory.js'
 import { tMain } from '../utils/mainI18n.js'
@@ -775,11 +778,29 @@ class RedisConnectionManager {
             if (!connection || connection.status !== 'connected') {
                 return { success: false, error: tMain('redis.connectionMissingOrDisconnected') }
             }
+
+            let databaseCount = DEFAULT_DATABASE_COUNT
+            let databaseCountFromConfig = false
+
+            try {
+                // CONFIG GET databases 能读取 Redis 实际配置的逻辑库数量；权限受限时允许后续 INFO 兜底。
+                const configDatabases = await this.runWithCommandTimeout(
+                    connection.config,
+                    () => connection.redis.call('CONFIG', 'GET', 'databases'),
+                    'CONFIG GET databases'
+                )
+                databaseCount = parseRedisConfigDatabases(configDatabases, DEFAULT_DATABASE_COUNT)
+                databaseCountFromConfig = true
+            } catch (error) {
+                log.warn(`读取 Redis 数据库数量失败，使用默认 DB 列表: ${error.message || error}`)
+            }
+
             const infoRaw = await this.runWithCommandTimeout(connection.config, () => connection.redis.call('INFO', 'ALL'), 'INFO')
             if (typeof infoRaw !== 'string') {
                 return { success: false, error: tMain('redis.infoFormatInvalid') }
             }
             const data = {
+                databaseCount,
                 connectedClients: 0,
                 cpuUsage: 0,
                 usedMemory: 0,
@@ -802,6 +823,7 @@ class RedisConnectionManager {
             // 当前选中的数据库索引
             const currentDb = connection.config.db_index ?? 0
             let uptime = 0, cpuSys = 0, cpuUser = 0
+            let maxKeyspaceDb = currentDb
             const now = Date.now() / 1000  // 当前时间（秒）
             let currentSection = 'General'
             const sectionMap = new Map()
@@ -876,6 +898,8 @@ class RedisConnectionManager {
                     const avgTtlMatch = t.match(/avg_ttl=(\d+)/)
                     if (keysMatch) {
                         const keyCount = parseInt(keysMatch[1], 10) || 0
+                        const dbIndex = dbMatch ? parseInt(dbMatch[1], 10) : 0
+                        maxKeyspaceDb = Math.max(maxKeyspaceDb, dbIndex)
                         data.summary.keyspace.push({
                             db: dbMatch ? `db${dbMatch[1]}` : key,
                             keys: keyCount,
@@ -884,7 +908,7 @@ class RedisConnectionManager {
                         })
 
                         // 只统计当前选中库的 key 数
-                        if (dbMatch && parseInt(dbMatch[1], 10) === currentDb) {
+                        if (dbMatch && dbIndex === currentDb) {
                             data.totalKeys = keyCount
                         }
                     }
@@ -901,6 +925,14 @@ class RedisConnectionManager {
             }
             // 保存本次采样供下次计算差值
             connection._lastCpuSample = { totalCpu, timestamp: now }
+            // CONFIG 不可用时至少保留默认 16 个库；若 INFO 暴露了更高库索引，也要保证下拉列表可选到。
+            const fallbackDatabaseCount = databaseCountFromConfig ? 1 : DEFAULT_DATABASE_COUNT
+            data.databaseCount = Math.max(
+                normalizeDatabaseCount(data.databaseCount, DEFAULT_DATABASE_COUNT),
+                fallbackDatabaseCount,
+                maxKeyspaceDb + 1,
+                currentDb + 1
+            )
             data.sections = Array.from(sectionMap.values())
             data.summary.cpu.current_usage_percent = data.cpuUsage
             data.summary.keyspace_current_db = currentDb
