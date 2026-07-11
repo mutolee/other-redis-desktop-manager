@@ -4,9 +4,11 @@
 -->
 <script setup>
 import { computed, ref } from 'vue'
+import { DownloadComputer } from '@icon-park/vue-next'
 import { ElMessage } from 'element-plus'
 import { useI18n } from '../../i18n/index.js'
 import { renderReleaseNotesMarkdown } from '../../utils/releaseNotesMarkdownUtil.js'
+import DialogTitle from '../common/DialogTitle.vue'
 
 // 组件入参：父组件控制弹窗显隐，并传入 main 进程返回的版本更新信息。
 const props = defineProps({
@@ -69,7 +71,7 @@ const handleOpenReleasePage = async () => {
 </script>
 
 <template>
-    <!-- 更新提示弹窗：固定尺寸承载 GitHub Release Markdown 内容，避免长文本挤压按钮区。 -->
+    <!-- 更新提示弹窗：保持 Element Plus Dialog 原始样式，只固定高度并让内容区滚动。 -->
     <el-dialog
         v-model="dialogVisible"
         class="update-dialog"
@@ -80,32 +82,22 @@ const handleOpenReleasePage = async () => {
         :destroy-on-close="false"
     >
         <template #header>
-            <div class="update-dialog-header">
-                <span class="update-dialog-title">{{ t('settings.update.foundTitle') }}</span>
-            </div>
+            <!-- 弹窗标题：使用更新图标强化这是版本升级确认弹窗。 -->
+            <DialogTitle :icon="DownloadComputer" :title="t('settings.update.foundTitle')" />
         </template>
 
         <div class="update-dialog-body">
-            <!-- 版本摘要：固定在内容顶部，便于用户快速判断当前版本和最新版本。 -->
-            <div class="update-version-card">
-                <div class="update-version-item">
-                    <span class="update-version-label">{{ t('settings.update.currentVersion') }}</span>
-                    <span class="update-version-value">V{{ updateInfo?.currentVersion }}</span>
-                </div>
-                <div class="update-version-divider"></div>
-                <div class="update-version-item">
-                    <span class="update-version-label">{{ t('settings.update.latestVersion') }}</span>
-                    <span class="update-version-value is-latest">V{{ updateInfo?.latestVersion }}</span>
-                </div>
+            <!-- 版本摘要：仅展示文字信息，不额外改变 Dialog 的原始视觉风格。 -->
+            <div class="update-version-summary">
+                <span>{{ t('settings.update.currentVersion') }}: V{{ updateInfo?.currentVersion }}</span>
+                <span>{{ t('settings.update.latestVersion') }}: V{{ updateInfo?.latestVersion }}</span>
             </div>
 
-            <!-- 更新内容：使用 el-scrollbar 承载 Markdown 渲染结果，长内容只在弹窗内部滚动。 -->
-            <div class="update-notes-section">
+            <!-- 更新内容：body 内部滚动，Dialog header/footer 保持 Element Plus 原始样式。 -->
+            <el-scrollbar class="update-notes-scrollbar">
                 <div class="update-notes-title">{{ t('settings.update.releaseNotesTitle') }}</div>
-                <el-scrollbar class="update-notes-scrollbar">
-                    <div class="update-notes-markdown" v-html="releaseNotesHtml"></div>
-                </el-scrollbar>
-            </div>
+                <div class="update-notes-markdown" v-html="releaseNotesHtml"></div>
+            </el-scrollbar>
         </div>
 
         <template #footer>
@@ -122,7 +114,7 @@ const handleOpenReleasePage = async () => {
 </template>
 
 <style scoped>
-/* 更新弹窗：固定宽高展示 Release Notes，避免 Markdown 内容撑破窗口或挤压操作按钮。 */
+/* 更新弹窗尺寸：保留 Element Plus Dialog 原始视觉，仅固定整体高度。 */
 :global(.update-dialog) {
     --update-dialog-height: 520px;
     height: var(--update-dialog-height);
@@ -131,32 +123,11 @@ const handleOpenReleasePage = async () => {
     flex-direction: column;
 }
 
-:global(.update-dialog .el-dialog__header) {
-    padding: 18px 20px 10px;
-    margin-right: 0;
-}
-
+/* Dialog 内容区：成为内部滚动容器的约束边界，避免 Markdown 挤压 footer。 */
 :global(.update-dialog .el-dialog__body) {
     flex: 1;
     min-height: 0;
-    padding: 0 20px;
     overflow: hidden;
-}
-
-:global(.update-dialog .el-dialog__footer) {
-    padding: 14px 20px 18px;
-}
-
-.update-dialog-header {
-    display: flex;
-    align-items: center;
-    min-width: 0;
-}
-
-.update-dialog-title {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--el-text-color-primary);
 }
 
 .update-dialog-body {
@@ -164,76 +135,34 @@ const handleOpenReleasePage = async () => {
     flex-direction: column;
     height: 100%;
     min-height: 0;
-    gap: 14px;
+    gap: 12px;
 }
 
-.update-version-card {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    align-items: center;
-    gap: 14px;
-    padding: 12px 14px;
-    border: 1px solid var(--el-border-color);
-    border-radius: 6px;
-    background: var(--el-fill-color-light);
+/* 版本摘要：简单文字行，避免额外自定义卡片破坏 Dialog 原始观感。 */
+.update-version-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
     flex-shrink: 0;
+    color: var(--el-text-color-regular);
+    font-size: 13px;
 }
 
-.update-version-item {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
-}
-
-.update-version-label {
-    font-size: 12px;
-    color: var(--el-text-color-secondary);
-}
-
-.update-version-value {
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--el-text-color-primary);
-}
-
-.update-version-value.is-latest {
-    color: var(--el-color-primary);
-}
-
-.update-version-divider {
-    width: 1px;
-    height: 34px;
-    background: var(--el-border-color);
-}
-
-.update-notes-section {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
+/* 更新内容：Dialog body 内唯一滚动区，右侧保留一点阅读空隙。 */
+.update-notes-scrollbar {
     flex: 1;
-    border: 1px solid var(--el-border-color);
-    border-radius: 6px;
-    overflow: hidden;
-    background: var(--el-bg-color);
+    min-height: 0;
 }
 
 .update-notes-title {
-    padding: 10px 14px;
+    margin-bottom: 8px;
     font-size: 13px;
     font-weight: 600;
     color: var(--el-text-color-primary);
-    border-bottom: 1px solid var(--el-border-color);
-    background: var(--el-fill-color-light);
-    flex-shrink: 0;
-}
-
-.update-notes-scrollbar {
-    height: 100%;
 }
 
 .update-notes-markdown {
-    padding: 14px 16px;
+    padding-right: 10px;
     color: var(--el-text-color-regular);
     font-size: 14px;
     line-height: 1.75;

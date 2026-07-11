@@ -13,6 +13,7 @@ import { useUserSettingsStore } from '../../stores/modules/userSettingsStore.js'
 import UpdateCheckDialog from '../dialog/UpdateCheckDialog.vue'
 
 // 组件入参：由标题栏或其他入口控制设置抽屉显示状态。
+
 const props = defineProps({
     visible: {
         type: Boolean
@@ -20,6 +21,7 @@ const props = defineProps({
 })
 
 // 对外事件：同步 v-model:visible。
+
 const emit = defineEmits(['update:visible'])
 
 // 抽屉可见性代理：把 Element Plus Drawer 的 v-model 透传给父组件。
@@ -33,6 +35,7 @@ const drawerVisible = computed({
 // 用户设置 store：设置抽屉中的所有配置项都直接读写该 store。
 const userSettingsStore = useUserSettingsStore()
 // 国际化文案：设置抽屉是语言切换的入口，需要优先接入 i18n。
+
 const { t } = useI18n()
 
 // 记录最后点击位置，用于 View Transitions 动画圆心
@@ -61,21 +64,27 @@ const {
 const activeTab = ref('general')
 
 // 当前应用版本：从 main 进程读取，避免设置页写死版本号。
+
 const currentVersion = ref('1.0.0')
 
 // 更新检查状态：控制设置页按钮 loading，避免重复点击。
+
 const checkingUpdate = ref(false)
 
 // 更新弹窗状态：发现新版本后交给独立弹窗组件展示。
+
 const updateDialogVisible = ref(false)
 
 // 待展示的更新信息：由 main 进程从 GitHub Release 返回，传给更新弹窗组件。
+
 const updateDialogInfo = ref(null)
 
 // 设置左侧 Tabs 宽度：中文紧凑显示，英文为较长标签预留空间。
+
 const settingsTabWidth = computed(() => language.value === 'en-US' ? '130px' : '100px')
 
 // 主题选项：浅色/深色，切换时使用 View Transition 动画。
+
 const themeOptions = computed(() => [
     { label: t('settings.themeLight'), value: 'light' },
     { label: t('settings.themeDark'), value: 'dark' }
@@ -166,7 +175,7 @@ const handleReset = async () => {
 
 /**
  * 手动检查 GitHub Release 更新。
- * 有新版本时把更新信息交给独立弹窗组件展示。
+ * 通过 main 进程访问 GitHub Release，renderer 只负责展示 loading、结果弹窗和错误提示。
  */
 const handleCheckUpdate = async () => {
     if (checkingUpdate.value) {
@@ -176,18 +185,18 @@ const handleCheckUpdate = async () => {
     checkingUpdate.value = true
 
     try {
-        const result = await window.api.appInfo.checkUpdate()
+        const updateResult = await window.api.appInfo.checkUpdate()
 
-        if (!result.success) {
-            ElMessage.error(result.error || t('settings.update.checkFail'))
+        if (!updateResult.success) {
+            ElMessage.error(updateResult.error || t('settings.update.checkFail'))
             return
         }
 
-        const updateInfo = result.data || {}
+        const updateInfo = updateResult.data
         currentVersion.value = updateInfo.currentVersion || currentVersion.value
 
         if (!updateInfo.hasUpdate) {
-            ElMessage.success(t('settings.update.noUpdate', { value: currentVersion.value }))
+            ElMessage.success(t('settings.update.noUpdate', { value: updateInfo.currentVersion }))
             return
         }
 
@@ -199,7 +208,6 @@ const handleCheckUpdate = async () => {
         checkingUpdate.value = false
     }
 }
-
 onMounted(async () => {
     try {
         currentVersion.value = await window.api.appInfo.getVersion()
