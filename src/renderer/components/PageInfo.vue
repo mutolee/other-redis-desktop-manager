@@ -52,7 +52,6 @@
                                                  <button
                                                      class="detail-tab-close-btn"
                                                      type="button"
-                                                     :title="t('keyDetail.actions.close')"
                                                      @click.stop="closeDetailTab(tab.key)"
                                                  >
                                                      <CloseSmall />
