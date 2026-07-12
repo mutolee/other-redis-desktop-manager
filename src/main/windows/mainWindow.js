@@ -146,11 +146,6 @@ class MainWindow {
         }
 
         this.win.hide()
-
-        // macOS 下隐藏应用可以让“最小化到托盘”的语义更接近系统习惯，后续由 show() 负责 app.show() 唤回。
-        if (process.platform === 'darwin') {
-            app.hide()
-        }
     }
 
     /**

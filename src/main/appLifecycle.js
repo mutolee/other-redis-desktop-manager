@@ -16,6 +16,7 @@ const log = createLogger('main')
 // Redis 连接退出清理状态：避免 before-quit 被多次触发时重复关闭连接。
 let isRedisCleanupRunning = false
 let isRedisCleanupCompleted = false
+let isAppQuitting = false
 const REDIS_CLEANUP_TIMEOUT_MS = 3000
 
 /**
@@ -39,6 +40,11 @@ const focusMainWindow = () => {
  * 用于 macOS Dock 激活、第二实例启动等系统入口，优先显示已有主窗口，不存在时再走启动窗口流程。
  */
 const activateMainWindow = () => {
+    if (isAppQuitting) {
+        log.info('应用正在退出，忽略窗口唤回请求')
+        return
+    }
+
     const mainWindow = getMainWindow()
 
     if (mainWindow) {
@@ -66,6 +72,15 @@ const runRedisCleanupWithTimeout = (cleanupPromise) => {
             }, REDIS_CLEANUP_TIMEOUT_MS)
         })
     ])
+}
+
+/**
+ * 释放应用级资源。
+ * app.exit() 不再二次触发 before-quit，因此这里主动完成托盘和快捷键清理。
+ */
+const releaseAppResourcesBeforeExit = () => {
+    destroyTrayManager()
+    globalShortcut.unregisterAll()
 }
 
 /**
@@ -112,6 +127,7 @@ const initializeApp = async () => {
  */
 const cleanupRedisConnectionsBeforeQuit = (event) => {
     log.info('应用准备退出')
+    isAppQuitting = true
 
     if (isRedisCleanupCompleted) {
         return
@@ -134,10 +150,11 @@ const cleanupRedisConnectionsBeforeQuit = (event) => {
             log.error('关闭全部 Redis 连接失败', error)
         })
         .finally(() => {
-            // 不论清理是否完全成功，都放行退出流程，避免应用卡死在退出阶段。
+            // 不论清理是否完全成功，都释放主进程资源并直接退出，避免 app.quit() 二次触发导致 macOS Dock 状态异常。
             isRedisCleanupRunning = false
             isRedisCleanupCompleted = true
-            app.quit()
+            releaseAppResourcesBeforeExit()
+            app.exit(0)
         })
 }
 
@@ -168,8 +185,7 @@ const registerAppEventHandlers = () => {
     // 应用即将退出时释放全局快捷键，避免主进程退出阶段仍残留注册状态。
     app.on('will-quit', () => {
         log.info('应用即将退出，释放全局快捷键')
-        destroyTrayManager()
-        globalShortcut.unregisterAll()
+        releaseAppResourcesBeforeExit()
     })
 }
 
