@@ -3,7 +3,7 @@
  * 负责展示启动页，并在短暂过渡后关闭启动窗口、创建主业务窗口。
  */
 import electron from 'electron'
-import { createSecureWebPreferences, loadRendererRoute } from '../managers/WindowsManager.js'
+import { attachRendererDiagnostics, createSecureWebPreferences, loadRendererRoute } from '../managers/WindowsManager.js'
 import { createMainWindow } from './mainWindow.js'
 import { createLogger } from '../utils/logger.js'
 
@@ -44,6 +44,9 @@ class SplashWindow {
             center: true,
             webPreferences: createSecureWebPreferences()
         })
+
+        // 渲染诊断：启动屏白屏时输出加载失败和 renderer 控制台错误。
+        attachRendererDiagnostics(this.win)
 
         // 启动窗口关闭后释放单例引用，避免后续 activate 时拿到已销毁实例。
         this.win.on('closed', () => {

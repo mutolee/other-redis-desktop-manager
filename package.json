@@ -16,7 +16,7 @@
     "desktop-client"
   ],
   "scripts": {
-    "dev:renderer": "vite src/renderer",
+    "dev:renderer": "vite src/renderer --host 127.0.0.1 --port 5173",
     "dev:main": "node scripts/dev-main.js",
     "build:renderer": "vite build src/renderer",
     "build": "npm run build:renderer",

@@ -4,6 +4,7 @@
  */
 import electron from 'electron'
 import {
+    attachRendererDiagnostics,
     createSecureWebPreferences,
     loadRendererRoute,
     loadVueDevToolsInDevelopment
@@ -54,6 +55,9 @@ class MainWindow {
             center: true,
             webPreferences: createSecureWebPreferences()
         })
+
+        // 渲染诊断：生产环境白屏时输出 loadFile 和 renderer 控制台错误，便于 macOS 打包排查。
+        attachRendererDiagnostics(this.win)
 
         // 主窗口关闭后释放单例引用，方便后续需要时重新创建窗口。
         this.win.on('closed', () => {

@@ -13,7 +13,7 @@ const { session } = electron
 const log = createLogger('windows-manager')
 
 // 渲染进程开发服务器地址：主窗口和启动窗口通过 hash 区分页面。
-const RENDERER_DEV_SERVER_URL = 'http://localhost:5173'
+const RENDERER_DEV_SERVER_URL = process.env.RENDERER_DEV_SERVER_URL || 'http://127.0.0.1:5173'
 
 // 打包后的渲染进程入口：生产环境下由 BrowserWindow.loadFile 加载。
 const RENDERER_DIST_INDEX = path.join(__dirname, '../../../dist/index.html')
@@ -23,6 +23,39 @@ const PRELOAD_ENTRY = path.join(__dirname, '../../preload/index.js')
 
 // Vue DevTools 扩展目录：可通过环境变量配置，避免把本机浏览器扩展路径写死到代码里。
 const VUE_DEVTOOLS_EXTENSION_PATH = process.env.VUE_DEVTOOLS_EXTENSION_PATH
+
+/**
+ * 给窗口补充渲染加载诊断日志。
+ * macOS 打包后如果出现白屏，通常需要从 loadFile 失败或 renderer 控制台错误定位原因。
+ *
+ * @param {Electron.BrowserWindow} browserWindow - 需要绑定诊断事件的窗口实例
+ */
+export const attachRendererDiagnostics = (browserWindow) => {
+    browserWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+        log.error('渲染页面加载失败', {
+            errorCode,
+            errorDescription,
+            validatedURL
+        })
+    })
+
+    browserWindow.webContents.on('render-process-gone', (event, details) => {
+        log.error('渲染进程异常退出', details)
+    })
+
+    browserWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+        if (level < 2) {
+            return
+        }
+
+        log.warn('渲染进程控制台消息', {
+            level,
+            message,
+            line,
+            sourceId
+        })
+    })
+}
 
 /**
  * 构建窗口通用 webPreferences。
@@ -49,8 +82,14 @@ export const createSecureWebPreferences = () => ({
  */
 export const loadRendererRoute = (browserWindow, routeHash) => {
     if (process.env.ELECTRON_DEV) {
+        log.info('加载开发环境渲染地址', `${RENDERER_DEV_SERVER_URL}/${routeHash}`)
         return browserWindow.loadURL(`${RENDERER_DEV_SERVER_URL}/${routeHash}`)
     }
+
+    log.info('加载生产环境渲染文件', {
+        indexPath: RENDERER_DIST_INDEX,
+        routeHash
+    })
 
     return browserWindow.loadFile(RENDERER_DIST_INDEX, {
         hash: routeHash
