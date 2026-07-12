@@ -1,7 +1,7 @@
 {
   "name": "other-redis-desktop-manager",
   "productName": "Other Redis Desktop Manager",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "基于 Vue 3、Element Plus 和 Electron 构建的 Redis 桌面客户端",
   "author": "mutolee",
   "license": "UNLICENSED",
