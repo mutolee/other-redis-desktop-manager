@@ -40,7 +40,6 @@
       "src/main/**/*",
       "src/preload/**/*",
       "assets/**/*",
-      "node_modules/**/*",
       "!**/*.map",
       "!**/.vscode/**/*",
       "!**/.idea/**/*",
@@ -108,23 +107,23 @@
     }
   },
   "dependencies": {
+    "ioredis": "^5.8.2"
+  },
+  "devDependencies": {
     "@icon-park/vue-next": "^1.4.2",
+    "@vitejs/plugin-vue": "^5.2.4",
     "dexie": "^4.2.1",
     "echarts": "^6.0.0",
+    "electron": "^39.8.0",
+    "electron-builder": "^26.0.12",
     "element-plus": "^2.12.0",
-    "ioredis": "^5.8.2",
     "mitt": "^3.0.1",
+    "nodemon": "^3.1.11",
     "pinia": "^3.0.4",
     "pinia-plugin-persistedstate": "^4.7.1",
     "vue": "^3.5.25",
     "vue-echarts": "^8.0.1",
-    "vue-router": "^4.6.4"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-vue": "^5.2.4",
-    "electron": "^39.8.0",
-    "electron-builder": "^26.0.12",
-    "nodemon": "^3.1.11",
+    "vue-router": "^4.6.4",
     "vite": "^6.4.2"
   }
 }
