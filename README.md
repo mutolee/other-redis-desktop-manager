@@ -1,7 +1,7 @@
 # Other Redis Desktop Manager
 
 <p align="center">
-  <img src="src/renderer/assets/logo.png" alt="Other Redis Desktop Manager" width="92" />
+  <img src="assets/icons/logo.png" alt="Other Redis Desktop Manager" width="100" />
 </p>
 
 <p align="center">
