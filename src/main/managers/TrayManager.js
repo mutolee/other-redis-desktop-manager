@@ -3,6 +3,7 @@
  * 负责创建托盘图标、托盘右键菜单，以及托盘入口对主窗口的显示/隐藏控制。
  */
 import electron from 'electron'
+import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { createLogger } from '../utils/logger.js'
@@ -20,14 +21,53 @@ const TRAY_TOOLTIP = 'Other Redis Desktop Manager'
 const TRAY_ICON_SIZE = 16
 
 /**
+ * 获取开发环境下的图标目录。
+ *
+ * @returns {string} 项目内图标目录绝对路径
+ */
+const getDevelopmentIconDir = () => {
+    return path.join(__dirname, '../../../assets/icons')
+}
+
+/**
+ * 获取打包环境下的图标目录。
+ * electron-builder 会通过 extraResources 把 assets/icons 复制到 process.resourcesPath 下。
+ *
+ * @returns {string} 打包产物中的图标目录绝对路径
+ */
+const getPackagedIconDir = () => {
+    return path.join(process.resourcesPath, 'assets/icons')
+}
+
+/**
  * 获取当前平台对应的托盘图标路径。
  *
  * @returns {string} 托盘图标绝对路径
  */
 const getTrayIconPath = () => {
     const iconFileName = process.platform === 'win32' ? 'logo.ico' : 'logo.png'
+    const candidatePaths = app.isPackaged
+        ? [
+            path.join(getPackagedIconDir(), iconFileName),
+            path.join(getDevelopmentIconDir(), iconFileName)
+        ]
+        : [
+            path.join(getDevelopmentIconDir(), iconFileName),
+            path.join(getPackagedIconDir(), iconFileName)
+        ]
 
-    return path.join(__dirname, '../../../assets/icons', iconFileName)
+    const iconPath = candidatePaths.find((candidatePath) => fs.existsSync(candidatePath))
+
+    if (!iconPath) {
+        log.warn('未找到托盘图标文件', {
+            iconFileName,
+            candidatePaths
+        })
+
+        return candidatePaths[0]
+    }
+
+    return iconPath
 }
 
 /**
@@ -42,6 +82,12 @@ const createTrayIcon = () => {
     if (icon.isEmpty()) {
         log.warn(`托盘图标加载失败: ${iconPath}`)
     }
+
+    log.info('加载托盘图标', {
+        iconPath,
+        isPackaged: app.isPackaged,
+        platform: process.platform
+    })
 
     // Windows 下明确关闭模板图模式，避免图标颜色被系统当成单色模板处理。
     if (process.platform === 'win32') {
