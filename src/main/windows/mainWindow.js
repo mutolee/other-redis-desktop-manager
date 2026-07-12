@@ -88,12 +88,22 @@ class MainWindow {
             return
         }
 
+        // macOS 被 app.hide() 隐藏后，仅 BrowserWindow.show() 可能无法重新激活应用，需要先唤回应用本身。
+        if (process.platform === 'darwin') {
+            app.show()
+        }
+
         if (this.win.isMinimized()) {
             this.win.restore()
         }
 
         this.win.show()
         this.win.focus()
+
+        // macOS 从托盘或 Dock 唤回时，显式置顶一次可以避免窗口仍停留在其他应用后方。
+        if (process.platform === 'darwin' && typeof this.win.moveTop === 'function') {
+            this.win.moveTop()
+        }
     }
 
     /**
@@ -131,7 +141,16 @@ class MainWindow {
      * 当前应用使用托盘常驻模式，隐藏后可从托盘重新显示。
      */
     hide() {
-        this.win?.hide()
+        if (!this.win) {
+            return
+        }
+
+        this.win.hide()
+
+        // macOS 下隐藏应用可以让“最小化到托盘”的语义更接近系统习惯，后续由 show() 负责 app.show() 唤回。
+        if (process.platform === 'darwin') {
+            app.hide()
+        }
     }
 
     /**

@@ -7,7 +7,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { createLogger } from '../utils/logger.js'
-import { getMainWindow } from '../windows/mainWindow.js'
+import { createMainWindow, getMainWindow } from '../windows/mainWindow.js'
 import { tMain } from '../utils/mainI18n.js'
 
 const { app, Menu, nativeImage, Tray } = electron
@@ -174,7 +174,7 @@ class TrayManager {
      * 显示并聚焦主窗口。
      */
     showWindow() {
-        const mainWindow = getMainWindow()
+        const mainWindow = getMainWindow() || createMainWindow()
 
         if (!mainWindow) {
             log.warn('未找到主窗口实例，无法从托盘显示窗口')

@@ -10,12 +10,13 @@ import { createLogger } from './utils/logger.js'
 import { getMainWindow } from './windows/mainWindow.js'
 import { createSplashWindow } from './windows/splashWindow.js'
 
-const { app, BrowserWindow, globalShortcut } = electron
+const { app, globalShortcut } = electron
 const log = createLogger('main')
 
 // Redis 连接退出清理状态：避免 before-quit 被多次触发时重复关闭连接。
 let isRedisCleanupRunning = false
 let isRedisCleanupCompleted = false
+const REDIS_CLEANUP_TIMEOUT_MS = 3000
 
 /**
  * 聚焦当前已有主窗口。
@@ -31,6 +32,40 @@ const focusMainWindow = () => {
 
     log.info('聚焦到现有主窗口')
     mainWindow.show()
+}
+
+/**
+ * 唤回应用主窗口。
+ * 用于 macOS Dock 激活、第二实例启动等系统入口，优先显示已有主窗口，不存在时再走启动窗口流程。
+ */
+const activateMainWindow = () => {
+    const mainWindow = getMainWindow()
+
+    if (mainWindow) {
+        focusMainWindow()
+        return
+    }
+
+    log.info('当前没有主窗口，重新创建启动屏幕')
+    createSplashWindow()
+}
+
+/**
+ * 给异步清理增加兜底超时，避免 quit 被长时间 Redis socket 关闭卡住。
+ *
+ * @param {Promise<void>} cleanupPromise - Redis 连接清理 Promise
+ * @returns {Promise<void>} 带超时保护的清理 Promise
+ */
+const runRedisCleanupWithTimeout = (cleanupPromise) => {
+    return Promise.race([
+        cleanupPromise,
+        new Promise((resolve) => {
+            setTimeout(() => {
+                log.warn(`Redis 连接清理超过 ${REDIS_CLEANUP_TIMEOUT_MS}ms，继续退出应用`)
+                resolve()
+            }, REDIS_CLEANUP_TIMEOUT_MS)
+        })
+    ])
 }
 
 /**
@@ -78,14 +113,20 @@ const initializeApp = async () => {
 const cleanupRedisConnectionsBeforeQuit = (event) => {
     log.info('应用准备退出')
 
-    if (isRedisCleanupCompleted || isRedisCleanupRunning) {
+    if (isRedisCleanupCompleted) {
         return
     }
 
     event.preventDefault()
+
+    if (isRedisCleanupRunning) {
+        log.info('Redis 连接清理正在进行，等待清理完成后继续退出')
+        return
+    }
+
     isRedisCleanupRunning = true
 
-    redisConnectionManager.closeAllRedisConnections()
+    runRedisCleanupWithTimeout(redisConnectionManager.closeAllRedisConnections())
         .then(() => {
             log.info('Redis 连接已全部关闭')
         })
@@ -108,7 +149,7 @@ const registerAppEventHandlers = () => {
     // 第二个实例启动时，把用户带回已经存在的主窗口。
     app.on('second-instance', () => {
         log.info('检测到第二个实例启动，尝试聚焦现有窗口')
-        focusMainWindow()
+        activateMainWindow()
     })
 
     // 所有窗口关闭后仍保持应用进程，允许用户从托盘重新唤醒或退出。
@@ -116,14 +157,10 @@ const registerAppEventHandlers = () => {
         log.info('所有窗口已关闭，应用保持托盘常驻')
     })
 
-    // macOS dock 激活时，如果没有窗口则重新创建启动屏流程。
+    // macOS Dock 激活时优先唤回隐藏主窗口；没有主窗口时再重新创建启动屏流程。
     app.on('activate', () => {
         log.info('应用被激活')
-
-        if (BrowserWindow.getAllWindows().length === 0) {
-            log.info('当前没有窗口，重新创建启动屏幕')
-            createSplashWindow()
-        }
+        activateMainWindow()
     })
 
     app.on('before-quit', cleanupRedisConnectionsBeforeQuit)
