@@ -5,7 +5,7 @@
 import electron from 'electron'
 import { registerAllIpcHandlers } from './ipcHandlers/ipcMain.js'
 import { redisConnectionManager } from './managers/RedisConnectionManager.js'
-import { createTrayManager, destroyTrayManager } from './managers/TrayManager.js'
+import { destroyTrayManager } from './managers/TrayManager.js'
 import { createLogger } from './utils/logger.js'
 import { getMainWindow } from './windows/mainWindow.js'
 import { createSplashWindow } from './windows/splashWindow.js'
@@ -107,10 +107,6 @@ const initializeApp = async () => {
     // 启动屏负责过渡到主窗口，避免主页面初始化期间出现空白窗口。
     await createSplashWindow()
     log.info('启动屏幕创建完成')
-
-    // 托盘负责窗口隐藏后的唤醒和应用退出入口。
-    createTrayManager()
-    log.info('系统托盘创建完成')
 
     // 注册默认禁用的开发者工具快捷键
     registerDefaultShortcutGuards()

@@ -4,6 +4,7 @@
  */
 import electron from 'electron'
 import { attachRendererDiagnostics, createSecureWebPreferences, loadRendererRoute } from '../managers/WindowsManager.js'
+import { createTrayManager } from '../managers/TrayManager.js'
 import { createMainWindow } from './mainWindow.js'
 import { createLogger } from '../utils/logger.js'
 
@@ -67,6 +68,8 @@ class SplashWindow {
         setTimeout(() => {
             try {
                 createMainWindow()
+                // 托盘必须等主窗口创建后再注册，避免 splash 期间点击托盘提前唤出主窗口。
+                createTrayManager()
             } catch (error) {
                 log.error('启动主窗口失败', error)
             } finally {
