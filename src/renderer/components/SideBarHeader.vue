@@ -2,14 +2,6 @@
     SideBarHeader.vue
     描述：侧边栏顶部品牌区。展示 Logo、产品名和 Redis 命令背景装饰，并适配折叠状态。
  -->
-<script setup>
-import { storeToRefs } from 'pinia'
-import { useUserSettingsStore } from '../stores/modules/userSettingsStore.js'
-
-// 用户设置 store：读取侧边栏折叠状态，驱动品牌区的尺寸和文字显隐。
-const { sideCollapseState } = storeToRefs(useUserSettingsStore())
-</script>
-
 <template>
     <!-- 品牌容器：折叠后只保留居中的 Logo，展开时展示产品名称和命令装饰。 -->
     <div :class="['sidebar-header', { 'is-collapsed': sideCollapseState }]">
@@ -26,6 +18,14 @@ const { sideCollapseState } = storeToRefs(useUserSettingsStore())
         </div>
     </div>
 </template>
+
+<script setup>
+import {storeToRefs} from 'pinia'
+import {useUserSettingsStore} from '../stores/modules/userSettingsStore.js'
+
+// 用户设置 store：读取侧边栏折叠状态，驱动品牌区的尺寸和文字显隐。
+const {sideCollapseState} = storeToRefs(useUserSettingsStore())
+</script>
 
 <style scoped>
 /* 品牌区：固定在侧边栏顶部，通过渐变和溢出裁剪承载命令装饰背景。 */

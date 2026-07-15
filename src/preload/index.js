@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron')
+const {contextBridge, ipcRenderer} = require('electron')
 
 /**
  * 预加载脚本。
@@ -64,6 +64,20 @@ contextBridge.exposeInMainWorld('api', {
         getServerInfo: (connectionId) => ipcRenderer.invoke('redis:get-server-info', connectionId),
         // SCAN 扫描 Key 列表
         scanKeys: (connectionId, cursor, pattern, count) => ipcRenderer.invoke('redis:scan-keys', connectionId, cursor, pattern, count),
+        // 按 pattern 预览 Key 列表
+        scanKeysByPattern: (connectionId, pattern, options) => ipcRenderer.invoke('redis:scan-keys-by-pattern', connectionId, pattern, options),
+        // 批量删除指定 Key
+        deleteKeys: (connectionId, keys) => ipcRenderer.invoke('redis:delete-keys', connectionId, keys),
+        // 批量导出指定 Key 的完整数据
+        exportKeys: (connectionId, keys) => ipcRenderer.invoke('redis:export-keys', connectionId, keys),
+        // 批量导入 Key 导出文件中的数据
+        importKeys: (connectionId, importData, options) => ipcRenderer.invoke('redis:import-keys', connectionId, importData, options),
+        // 分析当前 DB 中 Key 的内存占用排行
+        analyzeKeyMemory: (connectionId, options) => ipcRenderer.invoke('redis:analyze-key-memory', connectionId, options),
+        // 读取 Redis 实例级慢查询日志
+        getSlowLog: (connectionId, options) => ipcRenderer.invoke('redis:get-slow-log', connectionId, options),
+        // 清空 Redis 实例级慢查询日志
+        resetSlowLog: (connectionId) => ipcRenderer.invoke('redis:reset-slow-log', connectionId),
         // 获取 Key 详细信息
         getKeyData: (connectionId, key) => ipcRenderer.invoke('redis:get-key-data', connectionId, key),
         // 分段获取 Hash 字段
@@ -85,7 +99,8 @@ contextBridge.exposeInMainWorld('api', {
         // 监听 Redis 连接状态变化，并返回当前监听器的解绑函数
         onConnectionStatusChanged: (callback) => {
             if (typeof callback !== 'function') {
-                return () => {}
+                return () => {
+                }
             }
 
             // 为每次订阅创建独立监听器，避免解绑时影响其他页面或抽屉。

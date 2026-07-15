@@ -10,30 +10,30 @@ const createConnectConfigFormRules = (translate = null) => {
 
     return {
         group_name: [
-            { required: true, message: t('groupNameRequired', '请输入分组名称'), trigger: 'blur' }
+            {required: true, message: t('groupNameRequired', '请输入分组名称'), trigger: 'blur'}
         ],
         name: [
-            { required: true, message: t('connectionNameRequired', '请输入连接名称'), trigger: 'blur' }
+            {required: true, message: t('connectionNameRequired', '请输入连接名称'), trigger: 'blur'}
         ],
         host: [
-            { required: true, message: t('hostRequired', '请输入主机地址'), trigger: 'blur' }
+            {required: true, message: t('hostRequired', '请输入主机地址'), trigger: 'blur'}
         ],
         port: [
-            { required: true, message: t('portRequired', '请输入端口号'), trigger: 'blur' },
-            { type: 'number', min: 1, max: 65535, message: t('portRange', '端口号必须在1-65535之间'), trigger: 'blur' }
+            {required: true, message: t('portRequired', '请输入端口号'), trigger: 'blur'},
+            {type: 'number', min: 1, max: 65535, message: t('portRange', '端口号必须在1-65535之间'), trigger: 'blur'}
         ],
         ssh_host: [
-            { required: true, message: t('sshHostRequired', '请输入SSH主机地址'), trigger: 'blur' }
+            {required: true, message: t('sshHostRequired', '请输入SSH主机地址'), trigger: 'blur'}
         ],
         ssh_port: [
-            { required: true, message: t('sshPortRequired', '请输入SSH端口号'), trigger: 'blur' },
-            { type: 'number', min: 1, max: 65535, message: t('sshPortRange', 'SSH端口号必须在1-65535之间'), trigger: 'blur' }
+            {required: true, message: t('sshPortRequired', '请输入SSH端口号'), trigger: 'blur'},
+            {type: 'number', min: 1, max: 65535, message: t('sshPortRange', 'SSH端口号必须在1-65535之间'), trigger: 'blur'}
         ],
         ssh_username: [
-            { required: true, message: t('sshUsernameRequired', '请输入SSH用户名'), trigger: 'blur' }
+            {required: true, message: t('sshUsernameRequired', '请输入SSH用户名'), trigger: 'blur'}
         ],
         sentinel_master_name: [
-            { required: true, message: t('sentinelMasterRequired', '请输入哨兵主节点名称'), trigger: 'blur' }
+            {required: true, message: t('sentinelMasterRequired', '请输入哨兵主节点名称'), trigger: 'blur'}
         ]
     }
 }

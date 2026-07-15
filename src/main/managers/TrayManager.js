@@ -5,12 +5,12 @@
 import electron from 'electron'
 import fs from 'fs'
 import path from 'path'
-import { fileURLToPath } from 'url'
-import { createLogger } from '../utils/logger.js'
-import { createMainWindow, getMainWindow } from '../windows/mainWindow.js'
-import { tMain } from '../utils/mainI18n.js'
+import {fileURLToPath} from 'url'
+import {createLogger} from '../utils/logger.js'
+import {createMainWindow, getMainWindow} from '../windows/mainWindow.js'
+import {tMain} from '../utils/mainI18n.js'
 
-const { app, Menu, nativeImage, Tray } = electron
+const {app, Menu, nativeImage, Tray} = electron
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const log = createLogger('tray')
 

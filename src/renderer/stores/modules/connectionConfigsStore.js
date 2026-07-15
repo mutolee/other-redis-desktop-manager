@@ -1,6 +1,6 @@
-import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
-import { DEFAULT_GROUP_NAME, resolveConnectionGroupName } from '../../utils/connectionGroupUtil.js'
+import {defineStore} from 'pinia'
+import {computed, ref} from 'vue'
+import {DEFAULT_GROUP_NAME, resolveConnectionGroupName} from '../../utils/connectionGroupUtil.js'
 
 // 欢迎页最近连接展示数量。
 const RECENT_CONNECTION_LIMIT = 3

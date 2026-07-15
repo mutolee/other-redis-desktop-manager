@@ -2,8 +2,15 @@
     SideBarDrag.vue
     描述：旧版侧边栏宽度拖拽手柄。负责把鼠标横向位移转换为侧边栏像素宽度。
  -->
+<template>
+    <!-- 拖拽热区：父组件决定是否展示，本组件只负责交互。 -->
+    <div class="side-bar-drag">
+        <div class="drag-line" @mousedown="startResize"></div>
+    </div>
+</template>
+
 <script setup>
-import { onUnmounted, ref } from 'vue'
+import {onUnmounted, ref} from 'vue'
 
 // 组件入参：接收当前侧边栏宽度，拖拽时基于这个值计算新宽度。
 const props = defineProps({
@@ -67,13 +74,6 @@ onUnmounted(() => {
     stopResize()
 })
 </script>
-
-<template>
-    <!-- 拖拽热区：父组件决定是否展示，本组件只负责交互。 -->
-    <div class="side-bar-drag">
-        <div class="drag-line" @mousedown="startResize"></div>
-    </div>
-</template>
 
 <style scoped>
 /* 拖拽线：保持窄热区，hover/active 时通过颜色反馈可拖拽状态。 */

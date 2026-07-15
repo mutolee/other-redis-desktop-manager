@@ -2,14 +2,6 @@
     SideBarMenuEmpty.vue
     描述：连接菜单为空的占位组件
  -->
-<script setup>
-import { eventBus } from '../utils/eventBus.js'
-import { useI18n } from '../i18n/index.js'
-
-// 国际化文案读取函数：驱动侧边栏空连接占位文案和按钮宽度适配。
-const { language, t } = useI18n()
-</script>
-
 <template>
     <!-- 空连接列表：提供创建和导入两个入口，避免初次使用时停在空白菜单。 -->
     <el-empty
@@ -28,6 +20,14 @@ const { language, t } = useI18n()
         </div>
     </el-empty>
 </template>
+
+<script setup>
+import {eventBus} from '../utils/eventBus.js'
+import {useI18n} from '../i18n/index.js'
+
+// 国际化文案读取函数：驱动侧边栏空连接占位文案和按钮宽度适配。
+const {language, t} = useI18n()
+</script>
 
 <style scoped>
 .menu-empty {

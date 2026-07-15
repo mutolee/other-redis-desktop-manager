@@ -37,7 +37,7 @@ export const normalizeIndexRange = (start = 0, stop = DEFAULT_PAGE_SIZE - 1) => 
     const normalizedStart = Math.max(0, Number(start) || 0)
     const normalizedStop = Math.max(normalizedStart, Number(stop) || normalizedStart)
 
-    return { normalizedStart, normalizedStop }
+    return {normalizedStart, normalizedStop}
 }
 
 /**

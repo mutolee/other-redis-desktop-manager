@@ -1,6 +1,6 @@
 import Redis from 'ioredis'
-import { getMainWindow } from '../windows/mainWindow.js'
-import { createLogger } from '../utils/logger.js'
+import {getMainWindow} from '../windows/mainWindow.js'
+import {createLogger} from '../utils/logger.js'
 import {
     DEFAULT_COMMAND_TIMEOUT_MS,
     DEFAULT_DATABASE_COUNT,
@@ -14,10 +14,32 @@ import {
     normalizeTimeout,
     parseRedisConfigDatabases
 } from '../redis/redisDataUtils.js'
-import { buildRedisOptions } from '../redis/redisOptionsFactory.js'
-import { tMain } from '../utils/mainI18n.js'
+import {buildRedisOptions} from '../redis/redisOptionsFactory.js'
+import {RedisKeyTransferService} from '../redis/redisKeyTransferService.js'
+import {tMain} from '../utils/mainI18n.js'
 
 const log = createLogger('redis-manager')
+
+// 内存分析最多扫描的 Key 数量，避免全库超大规模扫描长时间占用 Redis 与主进程。
+const MEMORY_ANALYSIS_MAX_KEYS = 200000
+
+// 内存分析每轮 SCAN 的建议数量，平衡扫描速度和单次命令压力。
+const MEMORY_ANALYSIS_SCAN_COUNT = 1000
+
+// 删除目录 Key 前最多预览的 Key 数量，超过后禁止删除，避免用户误删不可见范围。
+const DIRECTORY_KEY_PREVIEW_MAX_KEYS = 50000
+
+// 删除目录 Key 预览时每轮 SCAN 的建议数量。
+const DIRECTORY_KEY_SCAN_COUNT = 1000
+
+// 批量删除时每批 DEL 的 Key 数量，避免单条命令参数过长。
+const DELETE_KEYS_BATCH_SIZE = 500
+
+// 慢查询默认读取条数，打开 Drawer 时先给出适中的最近记录范围。
+const SLOW_LOG_DEFAULT_COUNT = 128
+
+// 慢查询允许读取的最大条数，避免一次性拉取过多日志影响界面。
+const SLOW_LOG_MAX_COUNT = 512
 
 /**
  * Redis 连接管理器 - 管理所有活跃的 Redis 连接
@@ -27,6 +49,10 @@ const log = createLogger('redis-manager')
 class RedisConnectionManager {
     constructor() {
         this.connections = new Map()
+        this.keyTransferService = new RedisKeyTransferService({
+            getActiveConnection: (connectionId) => this.getActiveConnection(connectionId),
+            runWithCommandTimeout: (config, task, label) => this.runWithCommandTimeout(config, task, label)
+        })
     }
 
     /**
@@ -90,7 +116,7 @@ class RedisConnectionManager {
                 task(),
                 new Promise((_, reject) => {
                     timer = setTimeout(() => {
-                        reject(new Error(tMain('redis.commandTimeout', { label, timeout: commandTimeout })))
+                        reject(new Error(tMain('redis.commandTimeout', {label, timeout: commandTimeout})))
                     }, commandTimeout)
                 })
             ])
@@ -118,7 +144,9 @@ class RedisConnectionManager {
         const redis = new Redis(redisOpts)
         let connErr = null
         // 监听 error 事件获取原始错误信息（connect() 抛出的错误可能更泛化）
-        redis.on('error', (err) => { connErr = err })
+        redis.on('error', (err) => {
+            connErr = err
+        })
         try {
             await redis.connect()
             // 哨兵模式下 ioredis 会先通过 Sentinel 发现 Redis 数据节点，DBSIZE 实际在数据节点上执行。
@@ -126,10 +154,13 @@ class RedisConnectionManager {
             await this.runWithCommandTimeout(config, () => redis.call('DBSIZE'), 'DBSIZE')
             const latency = Date.now() - startTime
             await redis.quit()
-            return { success: true, message: tMain('redis.connectSuccess'), latency }
+            return {success: true, message: tMain('redis.connectSuccess'), latency}
         } catch (error) {
-            try { await redis.quit() } catch (e) { /* ignore */ }
-            return { success: false, error: (connErr && connErr.message) || error.message || tMain('redis.connectFail') }
+            try {
+                await redis.quit()
+            } catch (e) { /* ignore */
+            }
+            return {success: false, error: (connErr && connErr.message) || error.message || tMain('redis.connectFail')}
         }
     }
 
@@ -148,7 +179,10 @@ class RedisConnectionManager {
             if (existing && existing.redis) {
                 // 先移除监听再 quit，防止回调污染已删除的连接
                 existing.redis.removeAllListeners()
-                try { await existing.redis.quit() } catch (e) { /* ignore */ }
+                try {
+                    await existing.redis.quit()
+                } catch (e) { /* ignore */
+                }
             }
 
             // 通知前端进入连接中状态
@@ -161,7 +195,7 @@ class RedisConnectionManager {
             const redis = new Redis(redisOpts)
 
             // 存入 Map 后才注册事件监听，避免时序问题
-            const connObj = { id: managedConnectionId, config, redis, status: 'connecting', connectedAt: null, lastStatusChange: new Date().toISOString() }
+            const connObj = {id: managedConnectionId, config, redis, status: 'connecting', connectedAt: null, lastStatusChange: new Date().toISOString()}
             this.connections.set(managedConnectionId, connObj)
 
             // ioredis 事件 → 更新状态 → IPC 通知渲染进程
@@ -170,7 +204,9 @@ class RedisConnectionManager {
             })
             redis.on('ready', () => {
                 const conn = this.connections.get(managedConnectionId)
-                if (conn) { conn.connectedAt = new Date().toISOString() }
+                if (conn) {
+                    conn.connectedAt = new Date().toISOString()
+                }
                 this.updateConnectionStatus(managedConnectionId, 'connected', tMain('redis.connectSuccess'))
             })
             redis.on('error', (error) => {
@@ -183,7 +219,7 @@ class RedisConnectionManager {
                 this.updateConnectionStatus(managedConnectionId, 'disconnected', tMain('redis.connectionEnded'))
             })
             redis.on('reconnecting', (delay) => {
-                this.updateConnectionStatus(managedConnectionId, 'reconnecting', tMain('redis.reconnecting', { delay }))
+                this.updateConnectionStatus(managedConnectionId, 'reconnecting', tMain('redis.reconnecting', {delay}))
             })
 
         } catch (error) {
@@ -199,24 +235,27 @@ class RedisConnectionManager {
      * @returns {Promise<{success:boolean, message?:string, error?:string}>}
      */
     async closeConnection(connectionId) {
-        const { managedConnectionId, connection } = this.getConnectionEntry(connectionId)
+        const {managedConnectionId, connection} = this.getConnectionEntry(connectionId)
 
         try {
             if (!connection) {
-                return { success: false, error: tMain('redis.connectionMissing') }
+                return {success: false, error: tMain('redis.connectionMissing')}
             }
             // 先移除监听再 quit，防止 quit 过程中的事件导致状态错乱
             if (connection.redis) {
                 connection.redis.removeAllListeners()
-                try { await connection.redis.quit() } catch (e) { /* ignore */ }
+                try {
+                    await connection.redis.quit()
+                } catch (e) { /* ignore */
+                }
             }
             // 从管理器中移除后通知状态变更
             this.connections.delete(managedConnectionId)
             this.updateConnectionStatus(managedConnectionId, 'disconnected', tMain('redis.connectionClosed'))
-            return { success: true, message: tMain('redis.connectionClosed') }
+            return {success: true, message: tMain('redis.connectionClosed')}
         } catch (error) {
             this.updateConnectionStatus(managedConnectionId, 'error', tMain('redis.closeConnectionFail'), error)
-            return { success: false, error: error.message || tMain('redis.closeConnectionFail') }
+            return {success: false, error: error.message || tMain('redis.closeConnectionFail')}
         }
     }
 
@@ -255,15 +294,15 @@ class RedisConnectionManager {
      * @returns {Promise<{success:boolean, data?:Object, error?:string}>}
      */
     async executeCommand(connectionId, command, args = []) {
-        const { managedConnectionId, connection } = this.getConnectionEntry(connectionId)
+        const {managedConnectionId, connection} = this.getConnectionEntry(connectionId)
 
         try {
             if (!connection) {
-                return { success: false, error: tMain('redis.connectionRequired') }
+                return {success: false, error: tMain('redis.connectionRequired')}
             }
             // 非 connected 状态不允许执行命令
             if (connection.status !== 'connected') {
-                return { success: false, error: tMain('redis.connectionStatusInvalid', { value: connection.status }) }
+                return {success: false, error: tMain('redis.connectionStatusInvalid', {value: connection.status})}
             }
             const startedAt = Date.now()
             // 通过 ioredis.call 发送任意 Redis 命令
@@ -302,7 +341,7 @@ class RedisConnectionManager {
             if (connErr) {
                 this.updateConnectionStatus(managedConnectionId, 'disconnected', tMain('redis.connectionDisconnected'), error)
             }
-            return { success: false, error: error.message || tMain('redis.commandFail') }
+            return {success: false, error: error.message || tMain('redis.commandFail')}
         }
     }
 
@@ -313,7 +352,7 @@ class RedisConnectionManager {
      * @returns {Object|null} 当前连接对象
      */
     getActiveConnection(connectionId) {
-        const { connection } = this.getConnectionEntry(connectionId)
+        const {connection} = this.getConnectionEntry(connectionId)
 
         if (!connection || connection.status !== 'connected') {
             return null
@@ -330,16 +369,16 @@ class RedisConnectionManager {
      */
     async selectDatabase(connectionId, dbIndex) {
         try {
-            const { connection } = this.getConnectionEntry(connectionId)
+            const {connection} = this.getConnectionEntry(connectionId)
             if (!connection || connection.status !== 'connected') {
-                return { success: false, error: tMain('redis.connectionMissing') }
+                return {success: false, error: tMain('redis.connectionMissing')}
             }
             // 执行 SELECT 命令并更新本地缓存的 db_index
             await this.runWithCommandTimeout(connection.config, () => connection.redis.select(dbIndex), 'SELECT')
             connection.config.db_index = dbIndex
-            return { success: true, message: tMain('redis.databaseSelected', { value: dbIndex }) }
+            return {success: true, message: tMain('redis.databaseSelected', {value: dbIndex})}
         } catch (error) {
-            return { success: false, error: error.message || tMain('redis.selectDatabaseFail') }
+            return {success: false, error: error.message || tMain('redis.selectDatabaseFail')}
         }
     }
 
@@ -350,16 +389,29 @@ class RedisConnectionManager {
         try {
             const connection = this.getActiveConnection(connectionId)
             if (!connection || connection.status !== 'connected') {
-                return { success: false, error: tMain('redis.connectionMissingOrDisconnected') }
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
             }
-            // SCAN 迭代扫描（不会阻塞 Redis），MATCH 支持通配符过滤
-            const result = await this.runWithCommandTimeout(
-                connection.config,
-                () => connection.redis.call('SCAN', cursor, 'MATCH', pattern, 'COUNT', count),
-                'SCAN'
-            )
-            const nextCursor = String(result[0])
-            const keys = result[1] || []
+            const normalizedCount = normalizePageCount(count)
+            const normalizedPattern = String(pattern || '*')
+            const shouldFillSearchPage = normalizedPattern !== '*'
+            let nextCursor = String(cursor ?? '0')
+            const keySet = new Set()
+
+            do {
+                // 搜索模式下需要连续推进游标，直到攒够一页命中结果；否则第一批未命中会让前端误以为没有数据。
+                const result = await this.runWithCommandTimeout(
+                    connection.config,
+                    () => connection.redis.call('SCAN', nextCursor, 'MATCH', normalizedPattern, 'COUNT', normalizedCount),
+                    'SCAN'
+                )
+                nextCursor = String(result[0])
+
+                for (const key of result[1] || []) {
+                    keySet.add(key)
+                }
+            } while (shouldFillSearchPage && nextCursor !== '0' && keySet.size < normalizedCount)
+
+            const keys = Array.from(keySet)
             const keyList = []
             if (keys.length > 0) {
                 // 批量 pipeline 获取类型，避免逐个 type 调用增加网络开销
@@ -367,13 +419,307 @@ class RedisConnectionManager {
                 for (const k of keys) pipe.type(k)
                 const types = await this.runWithCommandTimeout(connection.config, () => pipe.exec(), 'TYPE管道')
                 for (let i = 0; i < keys.length; i += 1) {
-                    keyList.push({ key: keys[i], type: (types[i] && types[i][1]) || 'unknown' })
+                    keyList.push({key: keys[i], type: (types[i] && types[i][1]) || 'unknown'})
                 }
             }
             // cursor === '0' 表示扫描完成
-            return { success: true, data: { cursor: nextCursor, keys: keyList, hasMore: nextCursor !== '0' } }
+            return {success: true, data: {cursor: nextCursor, keys: keyList, hasMore: nextCursor !== '0'}}
         } catch (error) {
-            return { success: false, error: error.message || tMain('redis.scanFail') }
+            return {success: false, error: error.message || tMain('redis.scanFail')}
+        }
+    }
+
+    /**
+     * 按 SCAN MATCH 完整预览一组 Key。
+     * 主要用于危险操作前的确认列表，例如删除目录下全部 Key。
+     * @param {string|number} connectionId - 当前连接 ID
+     * @param {string} pattern - Redis SCAN MATCH pattern
+     * @param {{maxKeys?: number}} options - 预览上限，避免超大目录把 renderer 压垮
+     * @returns {Promise<{success:boolean,data?:Object,error?:string}>}
+     */
+    async scanKeysByPattern(connectionId, pattern = '*', options = {}) {
+        try {
+            const connection = this.getActiveConnection(connectionId)
+            if (!connection || connection.status !== 'connected') {
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
+            }
+
+            const normalizedPattern = String(pattern || '*')
+            const maxKeys = Math.min(
+                Math.max(Number(options?.maxKeys) || DIRECTORY_KEY_PREVIEW_MAX_KEYS, 1),
+                DIRECTORY_KEY_PREVIEW_MAX_KEYS
+            )
+            const keySet = new Set()
+            let cursor = '0'
+
+            do {
+                const result = await this.runWithCommandTimeout(
+                    connection.config,
+                    () => connection.redis.call('SCAN', cursor, 'MATCH', normalizedPattern, 'COUNT', DIRECTORY_KEY_SCAN_COUNT),
+                    'SCAN'
+                )
+                cursor = String(result?.[0] ?? '0')
+
+                for (const key of result?.[1] || []) {
+                    if (keySet.size >= maxKeys) {
+                        break
+                    }
+
+                    keySet.add(key)
+                }
+            } while (cursor !== '0' && keySet.size < maxKeys)
+
+            const keys = Array.from(keySet).sort((left, right) => left.localeCompare(right))
+
+            return {
+                success: true,
+                data: {
+                    keys,
+                    count: keys.length,
+                    maxKeys,
+                    pattern: normalizedPattern,
+                    hasMore: cursor !== '0'
+                }
+            }
+        } catch (error) {
+            return {success: false, error: error.message || tMain('redis.scanFail')}
+        }
+    }
+
+    /**
+     * 批量删除指定 Key。
+     * 删除目录前由 renderer 传入已经预览并确认过的 Key 列表，main 负责分批 DEL，避免单条命令参数过长。
+     * @param {string|number} connectionId - 当前连接 ID
+     * @param {string[]} keys - 待删除 Key 列表
+     * @returns {Promise<{success:boolean,data?:Object,error?:string}>}
+     */
+    async deleteKeys(connectionId, keys = []) {
+        try {
+            const connection = this.getActiveConnection(connectionId)
+            if (!connection || connection.status !== 'connected') {
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
+            }
+
+            const normalizedKeys = Array.from(new Set(
+                (Array.isArray(keys) ? keys : [])
+                    .map((key) => String(key || ''))
+                    .filter(Boolean)
+            ))
+            let deletedCount = 0
+
+            for (let index = 0; index < normalizedKeys.length; index += DELETE_KEYS_BATCH_SIZE) {
+                const batchKeys = normalizedKeys.slice(index, index + DELETE_KEYS_BATCH_SIZE)
+                if (batchKeys.length === 0) {
+                    continue
+                }
+
+                const result = await this.runWithCommandTimeout(
+                    connection.config,
+                    () => connection.redis.call('DEL', ...batchKeys),
+                    'DEL'
+                )
+                deletedCount += Number(result) || 0
+            }
+
+            return {
+                success: true,
+                data: {
+                    requestedCount: normalizedKeys.length,
+                    deletedCount
+                }
+            }
+        } catch (error) {
+            return {success: false, error: error.message || tMain('redis.commandFail')}
+        }
+    }
+
+    /**
+     * 分析当前 DB 中 Key 的 Redis 内存占用。
+     * 通过 SCAN 分批遍历 Key，再用 pipeline 执行 MEMORY USAGE，避免 renderer 发起大量 IPC。
+     * @param {string|number} connectionId - 当前连接 ID
+     * @param {{maxKeys?: number, matchPattern?: string}} options - 分析上限与可选 SCAN MATCH 范围。
+     * @returns {Promise<{success:boolean,data?:Object,error?:string}>}
+     */
+    async analyzeKeyMemory(connectionId, options = {}) {
+        try {
+            const connection = this.getActiveConnection(connectionId)
+            if (!connection || connection.status !== 'connected') {
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
+            }
+
+            const maxKeys = Math.min(
+                Math.max(Number(options?.maxKeys) || MEMORY_ANALYSIS_MAX_KEYS, 1),
+                MEMORY_ANALYSIS_MAX_KEYS
+            )
+            const matchPattern = String(options?.matchPattern || '*').trim() || '*'
+            const rows = []
+            const seenKeys = new Set()
+            let cursor = '0'
+            let totalMemory = 0
+
+            do {
+                const scanArgs = matchPattern === '*'
+                    ? ['SCAN', cursor, 'COUNT', MEMORY_ANALYSIS_SCAN_COUNT]
+                    : ['SCAN', cursor, 'MATCH', matchPattern, 'COUNT', MEMORY_ANALYSIS_SCAN_COUNT]
+                const scanResult = await this.runWithCommandTimeout(
+                    connection.config,
+                    () => connection.redis.call(...scanArgs),
+                    'SCAN'
+                )
+                cursor = String(scanResult?.[0] ?? '0')
+
+                const batchKeys = []
+                for (const key of scanResult?.[1] || []) {
+                    if (seenKeys.has(key) || seenKeys.size >= maxKeys) {
+                        continue
+                    }
+
+                    seenKeys.add(key)
+                    batchKeys.push(key)
+                }
+
+                if (batchKeys.length > 0) {
+                    // MEMORY USAGE 可能因 Redis 版本或模块类型返回错误，单个 Key 失败时按 0 处理，不中断整批分析。
+                    const pipe = connection.redis.pipeline()
+                    for (const key of batchKeys) {
+                        pipe.call('MEMORY', 'USAGE', key)
+                    }
+                    const memoryResults = await this.runWithCommandTimeout(
+                        connection.config,
+                        () => pipe.exec(),
+                        'MEMORY USAGE'
+                    )
+
+                    batchKeys.forEach((key, index) => {
+                        const memoryUsage = Number(memoryResults?.[index]?.[1] ?? 0) || 0
+                        totalMemory += memoryUsage
+                        rows.push({
+                            key,
+                            memoryUsage
+                        })
+                    })
+                }
+            } while (cursor !== '0' && seenKeys.size < maxKeys)
+
+            rows.sort((left, right) => right.memoryUsage - left.memoryUsage)
+
+            return {
+                success: true,
+                data: {
+                    keys: rows,
+                    scannedCount: seenKeys.size,
+                    totalMemory,
+                    maxKeys,
+                    matchPattern,
+                    hasMore: cursor !== '0'
+                }
+            }
+        } catch (error) {
+            return {success: false, error: error.message || tMain('redis.commandFail')}
+        }
+    }
+
+    /**
+     * 读取 Redis 实例级慢查询日志。
+     * SLOWLOG 是 Redis 实例级能力，不按 DB 隔离；CONFIG GET 可能因权限限制失败，失败时仅返回空配置。
+     * @param {string|number} connectionId - 当前连接 ID
+     * @param {{count?: number}} options - 慢日志读取数量
+     * @returns {Promise<{success:boolean,data?:Object,error?:string}>}
+     */
+    async getSlowLog(connectionId, options = {}) {
+        try {
+            const connection = this.getActiveConnection(connectionId)
+            if (!connection || connection.status !== 'connected') {
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
+            }
+
+            const count = Math.min(
+                Math.max(Number(options?.count) || SLOW_LOG_DEFAULT_COUNT, 1),
+                SLOW_LOG_MAX_COUNT
+            )
+
+            const pipe = connection.redis.pipeline()
+            pipe.call('SLOWLOG', 'LEN')
+            pipe.call('SLOWLOG', 'GET', count)
+            const results = await this.runWithCommandTimeout(connection.config, () => pipe.exec(), 'SLOWLOG')
+            const total = Number(results?.[0]?.[1] ?? 0) || 0
+            const rawItems = Array.isArray(results?.[1]?.[1]) ? results[1][1] : []
+
+            const items = rawItems.map((entry) => {
+                const commandParts = Array.isArray(entry?.[3]) ? entry[3].map((part) => String(part)) : []
+
+                return {
+                    id: Number(entry?.[0] ?? 0),
+                    timestamp: Number(entry?.[1] ?? 0),
+                    durationMicroseconds: Number(entry?.[2] ?? 0) || 0,
+                    command: commandParts.join(' '),
+                    commandParts,
+                    clientAddress: String(entry?.[4] ?? ''),
+                    clientName: String(entry?.[5] ?? '')
+                }
+            })
+
+            const config = {
+                slowerThan: null,
+                maxLen: null
+            }
+
+            try {
+                const configPipe = connection.redis.pipeline()
+                configPipe.call('CONFIG', 'GET', 'slowlog-log-slower-than')
+                configPipe.call('CONFIG', 'GET', 'slowlog-max-len')
+                const configResults = await this.runWithCommandTimeout(connection.config, () => configPipe.exec(), 'CONFIG GET slowlog')
+                const parseConfigNumber = (result) => {
+                    if (!Array.isArray(result)) {
+                        return null
+                    }
+
+                    const value = Number(result[1])
+
+                    return Number.isFinite(value) ? value : null
+                }
+
+                config.slowerThan = parseConfigNumber(configResults?.[0]?.[1])
+                config.maxLen = parseConfigNumber(configResults?.[1]?.[1])
+            } catch (error) {
+                log.warn(`读取 Redis 慢查询配置失败: ${error.message || error}`)
+            }
+
+            return {
+                success: true,
+                data: {
+                    total,
+                    count,
+                    items,
+                    config
+                }
+            }
+        } catch (error) {
+            return {success: false, error: error.message || tMain('redis.commandFail')}
+        }
+    }
+
+    /**
+     * 清空 Redis 实例级慢查询日志。
+     * @param {string|number} connectionId - 当前连接 ID
+     * @returns {Promise<{success:boolean,message?:string,error?:string}>}
+     */
+    async resetSlowLog(connectionId) {
+        try {
+            const connection = this.getActiveConnection(connectionId)
+            if (!connection || connection.status !== 'connected') {
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
+            }
+
+            await this.runWithCommandTimeout(
+                connection.config,
+                () => connection.redis.call('SLOWLOG', 'RESET'),
+                'SLOWLOG RESET'
+            )
+
+            return {success: true, message: 'OK'}
+        } catch (error) {
+            return {success: false, error: error.message || tMain('redis.commandFail')}
         }
     }
 
@@ -384,7 +730,7 @@ class RedisConnectionManager {
         try {
             const connection = this.getActiveConnection(connectionId)
             if (!connection) {
-                return { success: false, error: tMain('redis.connectionMissingOrDisconnected') }
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
             }
             // 批量获取类型、TTL 和 Redis 估算的 Key 内存占用，减少详情 Header 的额外往返。
             const pipe = connection.redis.pipeline()
@@ -442,7 +788,7 @@ class RedisConnectionManager {
                     : []
                 value = []
                 for (let i = 0; i < v.length; i += 2) {
-                    value.push({ member: v[i], score: parseFloat(v[i + 1]) || 0 })
+                    value.push({member: v[i], score: parseFloat(v[i + 1]) || 0})
                 }
             } else if (keyType === 'stream') {
                 // Stream 可能持续增长，详情页首屏默认按最新消息倒序加载第一段。
@@ -456,10 +802,33 @@ class RedisConnectionManager {
                     : []
                 value = normalizeStreamEntries(streamEntries)
             }
-            return { success: true, data: { key, type: keyType, ttl, value, size, memoryUsage, cursor } }
+            return {success: true, data: {key, type: keyType, ttl, value, size, memoryUsage, cursor}}
         } catch (error) {
-            return { success: false, error: error.message || tMain('redis.getKeyDataFail') }
+            return {success: false, error: error.message || tMain('redis.getKeyDataFail')}
         }
+    }
+
+    /**
+     * 批量导出选中的 Key 数据。
+     * 具体读取和序列化逻辑委托给 RedisKeyTransferService，连接管理器只保留对外入口。
+     * @param {string|number} connectionId - 当前连接 ID
+     * @param {string[]} keys - 需要导出的 Key 列表
+     * @returns {Promise<{success:boolean,data?:Object,error?:string}>}
+     */
+    async exportKeys(connectionId, keys = []) {
+        return this.keyTransferService.exportKeys(connectionId, keys)
+    }
+
+    /**
+     * 导入 Key 导出文件中的数据。
+     * 具体类型恢复和批量写入逻辑委托给 RedisKeyTransferService。
+     * @param {string|number} connectionId - 当前连接 ID
+     * @param {Object} importData - renderer 解析后的导出文件内容
+     * @param {{replace?: boolean}} options - 导入选项
+     * @returns {Promise<{success:boolean,data?:Object,error?:string}>}
+     */
+    async importKeys(connectionId, importData = {}, options = {}) {
+        return this.keyTransferService.importKeys(connectionId, importData, options)
     }
 
     /**
@@ -475,10 +844,10 @@ class RedisConnectionManager {
         try {
             const connection = this.getActiveConnection(connectionId)
             if (!connection) {
-                return { success: false, error: tMain('redis.connectionMissingOrDisconnected') }
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
             }
 
-            const { normalizedStart, normalizedStop } = normalizeIndexRange(start, stop)
+            const {normalizedStart, normalizedStop} = normalizeIndexRange(start, stop)
 
             // HSCAN 的 COUNT 不是严格分页大小，这里先取字段列表，再按范围切片保证 UI 分页稳定。
             const fields = await this.runWithCommandTimeout(connection.config, () => connection.redis.hkeys(key), 'HKEYS')
@@ -509,7 +878,7 @@ class RedisConnectionManager {
                 }
             }
         } catch (error) {
-            return { success: false, error: error.message || tMain('redis.getHashDataFail') }
+            return {success: false, error: error.message || tMain('redis.getHashDataFail')}
         }
     }
 
@@ -526,10 +895,10 @@ class RedisConnectionManager {
         try {
             const connection = this.getActiveConnection(connectionId)
             if (!connection) {
-                return { success: false, error: tMain('redis.connectionMissingOrDisconnected') }
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
             }
 
-            const { normalizedStart, normalizedStop } = normalizeIndexRange(start, stop)
+            const {normalizedStart, normalizedStop} = normalizeIndexRange(start, stop)
 
             // 先读取总长度，再按请求范围读取元素，前端据此判断是否还有后续数据。
             const pipe = connection.redis.pipeline()
@@ -552,7 +921,7 @@ class RedisConnectionManager {
                 }
             }
         } catch (error) {
-            return { success: false, error: error.message || tMain('redis.getListDataFail') }
+            return {success: false, error: error.message || tMain('redis.getListDataFail')}
         }
     }
 
@@ -569,7 +938,7 @@ class RedisConnectionManager {
         try {
             const connection = this.getActiveConnection(connectionId)
             if (!connection) {
-                return { success: false, error: tMain('redis.connectionMissingOrDisconnected') }
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
             }
 
             const normalizedCursor = String(cursor ?? '0')
@@ -597,7 +966,7 @@ class RedisConnectionManager {
                 }
             }
         } catch (error) {
-            return { success: false, error: error.message || tMain('redis.getSetDataFail') }
+            return {success: false, error: error.message || tMain('redis.getSetDataFail')}
         }
     }
 
@@ -614,10 +983,10 @@ class RedisConnectionManager {
         try {
             const connection = this.getActiveConnection(connectionId)
             if (!connection) {
-                return { success: false, error: tMain('redis.connectionMissingOrDisconnected') }
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
             }
 
-            const { normalizedStart, normalizedStop } = normalizeIndexRange(start, stop)
+            const {normalizedStart, normalizedStop} = normalizeIndexRange(start, stop)
 
             // 先读取总长度，再按分数倒序读取当前页，前端据此判断是否还有后续数据。
             const pipe = connection.redis.pipeline()
@@ -649,7 +1018,7 @@ class RedisConnectionManager {
                 }
             }
         } catch (error) {
-            return { success: false, error: error.message || tMain('redis.getZSetDataFail') }
+            return {success: false, error: error.message || tMain('redis.getZSetDataFail')}
         }
     }
 
@@ -667,7 +1036,7 @@ class RedisConnectionManager {
         try {
             const connection = this.getActiveConnection(connectionId)
             if (!connection) {
-                return { success: false, error: tMain('redis.connectionMissingOrDisconnected') }
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
             }
 
             const normalizedCount = normalizePageCount(count)
@@ -691,7 +1060,7 @@ class RedisConnectionManager {
                 }
             }
         } catch (error) {
-            return { success: false, error: error.message || tMain('redis.getStreamDataFail') }
+            return {success: false, error: error.message || tMain('redis.getStreamDataFail')}
         }
     }
 
@@ -705,7 +1074,7 @@ class RedisConnectionManager {
         try {
             const connection = this.getActiveConnection(connectionId)
             if (!connection) {
-                return { success: false, error: tMain('redis.connectionMissingOrDisconnected') }
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
             }
 
             const rawGroups = await this.runWithCommandTimeout(
@@ -725,9 +1094,9 @@ class RedisConnectionManager {
                 }
             })
 
-            return { success: true, data: { key, groups } }
+            return {success: true, data: {key, groups}}
         } catch (error) {
-            return { success: false, error: error.message || tMain('redis.getStreamGroupsFail') }
+            return {success: false, error: error.message || tMain('redis.getStreamGroupsFail')}
         }
     }
 
@@ -742,7 +1111,7 @@ class RedisConnectionManager {
         try {
             const connection = this.getActiveConnection(connectionId)
             if (!connection) {
-                return { success: false, error: tMain('redis.connectionMissingOrDisconnected') }
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
             }
 
             const rawConsumers = await this.runWithCommandTimeout(
@@ -760,9 +1129,9 @@ class RedisConnectionManager {
                 }
             })
 
-            return { success: true, data: { key, groupName, consumers } }
+            return {success: true, data: {key, groupName, consumers}}
         } catch (error) {
-            return { success: false, error: error.message || tMain('redis.getStreamConsumersFail') }
+            return {success: false, error: error.message || tMain('redis.getStreamConsumersFail')}
         }
     }
 
@@ -776,7 +1145,7 @@ class RedisConnectionManager {
         try {
             const connection = this.getActiveConnection(connectionId)
             if (!connection || connection.status !== 'connected') {
-                return { success: false, error: tMain('redis.connectionMissingOrDisconnected') }
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
             }
 
             let databaseCount = DEFAULT_DATABASE_COUNT
@@ -797,7 +1166,7 @@ class RedisConnectionManager {
 
             const infoRaw = await this.runWithCommandTimeout(connection.config, () => connection.redis.call('INFO', 'ALL'), 'INFO')
             if (typeof infoRaw !== 'string') {
-                return { success: false, error: tMain('redis.infoFormatInvalid') }
+                return {success: false, error: tMain('redis.infoFormatInvalid')}
             }
             const data = {
                 databaseCount,
@@ -835,11 +1204,11 @@ class RedisConnectionManager {
              * @param {string} value - INFO 字段值。
              */
             const appendInfoRow = (section, key, value) => {
-                const row = { section, key, value }
+                const row = {section, key, value}
                 data.rows.push(row)
 
                 if (!sectionMap.has(section)) {
-                    sectionMap.set(section, { name: section, rows: [] })
+                    sectionMap.set(section, {name: section, rows: []})
                 }
                 sectionMap.get(section).rows.push(row)
             }
@@ -924,7 +1293,7 @@ class RedisConnectionManager {
                 data.cpuUsage = 0  // 首次采样，还没有差值数据
             }
             // 保存本次采样供下次计算差值
-            connection._lastCpuSample = { totalCpu, timestamp: now }
+            connection._lastCpuSample = {totalCpu, timestamp: now}
             // CONFIG 不可用时至少保留默认 16 个库；若 INFO 暴露了更高库索引，也要保证下拉列表可选到。
             const fallbackDatabaseCount = databaseCountFromConfig ? 1 : DEFAULT_DATABASE_COUNT
             data.databaseCount = Math.max(
@@ -937,9 +1306,9 @@ class RedisConnectionManager {
             data.summary.cpu.current_usage_percent = data.cpuUsage
             data.summary.keyspace_current_db = currentDb
             data.summary.keyspace_current_keys = data.totalKeys
-            return { success: true, data }
+            return {success: true, data}
         } catch (error) {
-            return { success: false, error: error.message || tMain('redis.getServerInfoFail') }
+            return {success: false, error: error.message || tMain('redis.getServerInfoFail')}
         }
     }
 
@@ -955,7 +1324,7 @@ class RedisConnectionManager {
         if (mainWindow && mainWindow.win && mainWindow.win.webContents) {
             mainWindow.win.webContents.send('redis:connection-status-changed', {
                 connectionId, status, message,
-                error: error ? { message: error.message, code: error.code || null } : null,
+                error: error ? {message: error.message, code: error.code || null} : null,
                 timestamp: new Date().toISOString()
             })
         }
@@ -969,13 +1338,13 @@ class RedisConnectionManager {
      * @param {Error} [error]
      */
     updateConnectionStatus(connectionId, status, message, error = null) {
-        const { managedConnectionId, connection } = this.getConnectionEntry(connectionId)
+        const {managedConnectionId, connection} = this.getConnectionEntry(connectionId)
 
         if (connection) {
             connection.status = status
             connection.lastStatusChange = new Date().toISOString()
             if (error) {
-                connection.lastError = { message: error.message, code: error.code || null, timestamp: new Date().toISOString() }
+                connection.lastError = {message: error.message, code: error.code || null, timestamp: new Date().toISOString()}
             }
         }
 

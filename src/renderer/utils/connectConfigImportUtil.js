@@ -2,11 +2,11 @@
  * 连接配置导入工具。
  * 负责读取 JSON 文件、校验基础格式、处理重名连接并刷新连接列表。
  */
-import { ElMessage } from 'element-plus'
-import { connectConfigRepository } from '../database/repositories/ConnectConfigRepository.js'
-import { eventBus } from './eventBus.js'
-import { resolveConnectionGroupName } from './connectionGroupUtil.js'
-import { useI18n } from '../i18n/index.js'
+import {ElMessage} from 'element-plus'
+import {connectConfigRepository} from '../database/repositories/ConnectConfigRepository.js'
+import {eventBus} from './eventBus.js'
+import {resolveConnectionGroupName} from './connectionGroupUtil.js'
+import {useI18n} from '../i18n/index.js'
 
 // 导入错误最多直接展示的条数，避免一次性刷屏。
 const MAX_VISIBLE_IMPORT_ERRORS = 5
@@ -19,7 +19,7 @@ const MAX_VISIBLE_IMPORT_ERRORS = 5
  */
 export const handleImportFileSelect = async (event, searchModeState) => {
     // 国际化文案读取函数：导入过程中的校验、错误和结果提示需要跟随当前语言。
-    const { t } = useI18n()
+    const {t} = useI18n()
     const file = event.target.files[0]
 
     if (!file) {
@@ -127,7 +127,7 @@ const batchImportConnections = async (importData, searchModeState, t) => {
 
         try {
             // 移除数据库生成字段，导入时重新创建。
-            const { id, created_at, updated_at, last_active_at, ...configData } = config
+            const {id, created_at, updated_at, last_active_at, ...configData} = config
             const groupName = resolveConnectionGroupName(configData.group_name)
             configData.group_name = groupName
             const existing = await connectConfigRepository.existsByName(configData.name || '', groupName)
@@ -164,14 +164,14 @@ const batchImportConnections = async (importData, searchModeState, t) => {
  */
 const showImportResult = (successCount, renameCount, errors, t) => {
     if (successCount > 0) {
-        let message = t('utils.connectConfigImport.messages.importSuccess', { value: successCount })
+        let message = t('utils.connectConfigImport.messages.importSuccess', {value: successCount})
 
         if (renameCount > 0) {
-            message += t('utils.connectConfigImport.messages.renameSummary', { value: renameCount })
+            message += t('utils.connectConfigImport.messages.renameSummary', {value: renameCount})
         }
 
         if (errors.length > 0) {
-            message += t('utils.connectConfigImport.messages.failSummary', { value: errors.length })
+            message += t('utils.connectConfigImport.messages.failSummary', {value: errors.length})
         }
 
         ElMessage.success(message)

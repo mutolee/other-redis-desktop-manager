@@ -27,7 +27,9 @@
                     @keyup.enter="handleRangeSearch"
                 >
                     <template #prefix>
-                        <el-icon><Search /></el-icon>
+                        <el-icon>
+                            <Search/>
+                        </el-icon>
                     </template>
                 </el-input>
                 <span class="range-separator">~</span>
@@ -39,7 +41,9 @@
                     @keyup.enter="handleRangeSearch"
                 >
                     <template #prefix>
-                        <el-icon><Search /></el-icon>
+                        <el-icon>
+                            <Search/>
+                        </el-icon>
                     </template>
                 </el-input>
             </div>
@@ -83,15 +87,15 @@
                                         <div class="virtual-table-cell action-cell">
                                             <div class="row-actions">
                                                 <el-tooltip :content="t('keyDetailPanels.common.copyCommand')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" type="primary" plain :icon="DocumentCopy" @click="handleCopyEntryCommand(data[index])" />
+                                                    <el-button circle size="small" type="primary" plain :icon="DocumentCopy" @click="handleCopyEntryCommand(data[index])"/>
                                                 </el-tooltip>
 
                                                 <el-tooltip :content="t('keyDetailPanels.common.view')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" plain :icon="View" @click="handleViewEntry(data[index])" />
+                                                    <el-button circle size="small" plain :icon="View" @click="handleViewEntry(data[index])"/>
                                                 </el-tooltip>
 
                                                 <el-tooltip :content="t('keyDetailPanels.common.delete')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" type="danger" :icon="Delete" :loading="deletingEntryId === data[index].id" @click="handleDeleteEntry(data[index])" />
+                                                    <el-button circle size="small" type="danger" :icon="Delete" :loading="deletingEntryId === data[index].id" @click="handleDeleteEntry(data[index])"/>
                                                 </el-tooltip>
                                             </div>
                                         </div>
@@ -104,31 +108,13 @@
             </div>
         </div>
 
-        <!-- 底部加载区：沿用其它集合详情页的加载更多/加载全部交互。 -->
-        <div class="load-footer">
-            <el-button
-                type="primary"
-                plain
-                class="load-btn"
-                :loading="isLoadingMore"
-                :disabled="!hasMore || isLoadingAll"
-                @click="handleLoadMore"
-            >
-                {{ t('keyDetailPanels.common.loadMore') }}
-            </el-button>
-
-            <el-button
-                type="warning"
-                plain
-                class="load-btn"
-                :loading="isLoadingAll"
-                :disabled="!hasMore || isLoadingMore"
-                @click="handleLoadAll"
-            >
-                {{ t('keyDetailPanels.common.loadAll') }}
-            </el-button>
-        </div>
-
+        <DetailLoadFooter
+            :has-more="hasMore"
+            :loading-more="isLoadingMore"
+            :loading-all="isLoadingAll"
+            @load-all="handleLoadAll"
+            @load-more="handleLoadMore"
+        />
         <!-- Stream Entry 新增弹窗：通过 XADD 写入一条消息，消息 ID 为空时交给 Redis 自动生成。 -->
         <el-dialog
             v-model="entryEditorVisible"
@@ -138,7 +124,7 @@
         >
             <template #header>
                 <!-- 弹窗标题：Stream Entry 新增使用加号图标，提示会写入一条新消息。 -->
-                <DialogTitle :icon="Plus" :title="t('keyDetailPanels.stream.addEntryTitle')" />
+                <DialogTitle :icon="Plus" :title="t('keyDetailPanels.stream.addEntryTitle')"/>
             </template>
 
             <el-form label-width="86px" class="entry-editor-form" @submit.prevent>
@@ -196,7 +182,7 @@
         >
             <template #header>
                 <!-- 弹窗标题：查看完整 Stream Entry 内容，使用预览图标提示只读。 -->
-                <DialogTitle :icon="View" :title="t('keyDetailPanels.stream.viewEntryTitle')" />
+                <DialogTitle :icon="View" :title="t('keyDetailPanels.stream.viewEntryTitle')"/>
             </template>
 
             <el-form :label-width="entryViewerLabelWidth" class="entry-viewer-form">
@@ -205,7 +191,7 @@
                 </el-form-item>
 
                 <el-form-item :label="t('keyDetailPanels.common.labels.fields')">
-                    <ViewerTextarea :model-value="viewingEntryFieldsJson" :height="260" />
+                    <ViewerTextarea :model-value="viewingEntryFieldsJson" :height="260"/>
                 </el-form-item>
             </el-form>
 
@@ -231,7 +217,7 @@
             <template #header>
                 <div class="drawer-header">
                     <el-icon class="drawer-header-icon">
-                        <Search />
+                        <Search/>
                     </el-icon>
                     <el-text size="large">{{ t('keyDetailPanels.stream.groupsAndConsumers') }}</el-text>
                 </div>
@@ -251,7 +237,9 @@
                 <div class="drawer-table-tools">
                     <el-input v-model="groupSearchText" class="group-search-input" clearable :placeholder="t('keyDetailPanels.stream.groupSearchPlaceholder')">
                         <template #prefix>
-                            <el-icon><Search /></el-icon>
+                            <el-icon>
+                                <Search/>
+                            </el-icon>
                         </template>
                     </el-input>
                 </div>
@@ -260,7 +248,7 @@
                     <template #empty>
                         <!-- Groups 空态：区分搜索无结果和当前 Stream 没有消费组。 -->
                         <div class="drawer-table-empty">
-                            <el-empty :image-size="92" :description="groupEmptyDescription" />
+                            <el-empty :image-size="92" :description="groupEmptyDescription"/>
                         </div>
                     </template>
 
@@ -269,7 +257,7 @@
                             <el-tag type="primary" size="small">{{ row.name }}</el-tag>
                         </template>
                     </el-table-column>
-                    <el-table-column prop="consumers" :label="t('keyDetailPanels.stream.consumers')" width="120" align="center" />
+                    <el-table-column prop="consumers" :label="t('keyDetailPanels.stream.consumers')" width="120" align="center"/>
                     <el-table-column :label="t('keyDetailPanels.stream.pending')" width="120" align="center">
                         <template #default="{ row }">
                             <el-tag :type="row.pending > 0 ? 'warning' : 'success'" size="small">{{ row.pending }}</el-tag>
@@ -301,18 +289,18 @@
             <template #header>
                 <div class="drawer-header">
                     <el-icon class="drawer-header-icon">
-                        <Search />
+                        <Search/>
                     </el-icon>
-                    <el-text size="large">{{ t('keyDetailPanels.stream.groupLabel', { value: selectedGroup?.name || '-' }) }}</el-text>
+                    <el-text size="large">{{ t('keyDetailPanels.stream.groupLabel', {value: selectedGroup?.name || '-'}) }}</el-text>
                 </div>
             </template>
 
             <div class="drawer-panel">
                 <div class="consumer-summary">
-                    <strong>{{ t('keyDetailPanels.stream.groupLabel', { value: selectedGroup?.name || '-' }) }}</strong>
+                    <strong>{{ t('keyDetailPanels.stream.groupLabel', {value: selectedGroup?.name || '-'}) }}</strong>
                     <div class="summary-tags">
-                        <el-tag size="small">{{ t('keyDetailPanels.stream.consumersCount', { value: consumerCount }) }}</el-tag>
-                        <el-tag size="small" type="warning">{{ t('keyDetailPanels.stream.totalPending', { value: totalPending }) }}</el-tag>
+                        <el-tag size="small">{{ t('keyDetailPanels.stream.consumersCount', {value: consumerCount}) }}</el-tag>
+                        <el-tag size="small" type="warning">{{ t('keyDetailPanels.stream.totalPending', {value: totalPending}) }}</el-tag>
                     </div>
                 </div>
 
@@ -320,13 +308,13 @@
                     <template #empty>
                         <!-- Consumers 空态：当前消费组下没有消费者时给出明确提示。 -->
                         <div class="drawer-table-empty">
-                            <el-empty :image-size="92" :description="consumersEmptyDescription" />
+                            <el-empty :image-size="92" :description="consumersEmptyDescription"/>
                         </div>
                     </template>
 
                     <el-table-column prop="name" :label="t('keyDetailPanels.stream.consumerName')" min-width="260">
                         <template #default="{ row }">
-                            <el-tag size="small">{{ t('keyDetailPanels.stream.consumerLabel', { value: row.name }) }}</el-tag>
+                            <el-tag size="small">{{ t('keyDetailPanels.stream.consumerLabel', {value: row.name}) }}</el-tag>
                         </template>
                     </el-table-column>
                     <el-table-column :label="t('keyDetailPanels.common.labels.pending')" width="140" align="center">
@@ -346,16 +334,17 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
-import { ElAutoResizer as AutoResizer, ElMessage, ElMessageBox, FixedSizeList } from 'element-plus'
-import { Copy as DocumentCopy, Delete, Plus, PreviewOpen as View, Refresh, Search } from '@icon-park/vue-next'
+import {computed, reactive, ref, watch} from 'vue'
+import {ElAutoResizer as AutoResizer, ElMessage, ElMessageBox, FixedSizeList} from 'element-plus'
+import {Copy as DocumentCopy, Delete, Plus, PreviewOpen as View, Refresh, Search} from '@icon-park/vue-next'
 import DialogTitle from '../common/DialogTitle.vue'
 import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
-import { useI18n } from '../../i18n/index.js'
+import DetailLoadFooter from './common/DetailLoadFooter.vue'
+import {useI18n} from '../../i18n/index.js'
 
 // 国际化文案读取函数：驱动 Stream 表格、Entry 弹窗、语言布局和消费组抽屉文案。
-const { language, t } = useI18n()
+const {language, t} = useI18n()
 
 // 组件入参：tabId 用于定位 Redis 连接，keyData 是父组件读取到的 Stream Key 详情。
 const props = defineProps({
@@ -454,7 +443,7 @@ const hasMore = computed(() => !rangeExhausted.value && loadedEntries.value.leng
 
 // 是否允许提交新增 Entry：Stream 至少需要一组 field/value，且当前没有提交中的写操作。
 const canSubmitEntry = computed(() => {
-    const { fields, errors } = parseEntryFieldsText(entryForm.fieldsText)
+    const {fields, errors} = parseEntryFieldsText(entryForm.fieldsText)
 
     return fields.length > 0 && errors.length === 0 && !savingEntry.value
 })
@@ -486,7 +475,7 @@ const groupEmptyDescription = computed(() =>
 // Consumers 空态文案：跟随当前选中的 Group，避免二级抽屉空态语义模糊。
 const consumersEmptyDescription = computed(() =>
     selectedGroup.value?.name
-        ? t('keyDetailPanels.stream.empty.noConsumers', { value: selectedGroup.value.name })
+        ? t('keyDetailPanels.stream.empty.noConsumers', {value: selectedGroup.value.name})
         : t('keyDetailPanels.stream.empty.selectGroup')
 )
 
@@ -532,7 +521,7 @@ const runRedisCommand = async (command, args) => {
     const response = await window.api.redis.executeCommand(props.tabId, command, args)
 
     if (!response.success) {
-        throw new Error(response.error || t('keyDetailPanels.common.messages.commandFail', { value: command }))
+        throw new Error(response.error || t('keyDetailPanels.common.messages.commandFail', {value: command}))
     }
 
     return response.data?.result
@@ -550,7 +539,7 @@ const parseEntryFieldsText = (text) => {
     const source = text.trim()
 
     if (!source) {
-        return { fields, errors }
+        return {fields, errors}
     }
 
     let parsedValue = null
@@ -559,12 +548,12 @@ const parseEntryFieldsText = (text) => {
         parsedValue = JSON.parse(source)
     } catch (error) {
         errors.push(t('keyDetailPanels.stream.messages.fieldsJsonInvalid'))
-        return { fields, errors }
+        return {fields, errors}
     }
 
     if (!parsedValue || Array.isArray(parsedValue) || typeof parsedValue !== 'object') {
         errors.push(t('keyDetailPanels.stream.messages.fieldsMustObject'))
-        return { fields, errors }
+        return {fields, errors}
     }
 
     Object.entries(parsedValue).forEach(([rawField, rawValue]) => {
@@ -580,10 +569,10 @@ const parseEntryFieldsText = (text) => {
             ? rawValue
             : JSON.stringify(rawValue)
 
-        fields.push({ field, value: value ?? '' })
+        fields.push({field, value: value ?? ''})
     })
 
-    return { fields, errors }
+    return {fields, errors}
 }
 
 /**
@@ -679,7 +668,7 @@ const handleRangeSearch = async () => {
     isLoadingMore.value = true
 
     try {
-        const { items, size } = await fetchStreamRange(rangeMaxId.value || '+', rangeMinId.value || '-')
+        const {items, size} = await fetchStreamRange(rangeMaxId.value || '+', rangeMinId.value || '-')
         streamTotalSize.value = size
         loadedEntries.value = items
         rangeExhausted.value = items.length < STREAM_PAGE_SIZE
@@ -703,7 +692,7 @@ const handleLoadMore = async () => {
     try {
         const lastEntry = loadedEntries.value[loadedEntries.value.length - 1]
         const nextMaxId = lastEntry?.id ? `(${lastEntry.id}` : (rangeMaxId.value || '+')
-        const { items, size } = await fetchStreamRange(nextMaxId, rangeMinId.value || '-')
+        const {items, size} = await fetchStreamRange(nextMaxId, rangeMinId.value || '-')
 
         streamTotalSize.value = size
         loadedEntries.value = mergeEntries(loadedEntries.value, items)
@@ -730,7 +719,7 @@ const handleLoadAll = async () => {
             const beforeLength = loadedEntries.value.length
             const lastEntry = loadedEntries.value[loadedEntries.value.length - 1]
             const nextMaxId = lastEntry?.id ? `(${lastEntry.id}` : (rangeMaxId.value || '+')
-            const { items, size } = await fetchStreamRange(nextMaxId, rangeMinId.value || '-')
+            const {items, size} = await fetchStreamRange(nextMaxId, rangeMinId.value || '-')
 
             streamTotalSize.value = size
             loadedEntries.value = mergeEntries(loadedEntries.value, items)
@@ -836,7 +825,7 @@ const handleSaveEntry = async () => {
 
     try {
         const messageId = entryForm.messageId.trim() || '*'
-        const { fields, errors } = parseEntryFieldsText(entryForm.fieldsText)
+        const {fields, errors} = parseEntryFieldsText(entryForm.fieldsText)
 
         if (errors.length > 0) {
             ElMessage.warning(errors[0])
@@ -912,7 +901,7 @@ const handleViewEntry = (row) => {
 const handleDeleteEntry = async (row) => {
     try {
         await ElMessageBox.confirm(
-            t('keyDetailPanels.stream.confirmDelete', { value: row.id }),
+            t('keyDetailPanels.stream.confirmDelete', {value: row.id}),
             t('keyDetailPanels.stream.deleteTitle'),
             {
                 confirmButtonText: t('keyDetail.actions.delete'),
@@ -961,7 +950,7 @@ watch(
         isLoadingMore.value = false
         isLoadingAll.value = false
     },
-    { immediate: true }
+    {immediate: true}
 )
 </script>
 
@@ -1116,21 +1105,6 @@ watch(
     margin-left: 0;
 }
 
-/* 底部加载操作区：和其它集合详情底部保持一致。 */
-.load-footer {
-    display: flex;
-    gap: 8px;
-    padding: 8px 0 0 0;
-    flex-shrink: 0;
-    align-items: center;
-    box-sizing: border-box;
-}
-
-.load-btn {
-    flex: 1;
-    height: 30px;
-    margin-left: 0;
-}
 
 /* Entry 弹窗表单：给输入区留出轻微内边距，避免 textarea 贴边。 */
 .entry-editor-form,

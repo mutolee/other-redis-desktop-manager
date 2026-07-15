@@ -25,7 +25,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import {computed, ref, watch} from 'vue'
 
 // 组件入参：content 负责 tooltip 展示文本，placement/showAfter 沿用 Element Plus Tooltip 的基础配置。
 const props = defineProps({

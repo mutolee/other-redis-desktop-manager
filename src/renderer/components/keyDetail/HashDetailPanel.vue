@@ -19,7 +19,9 @@
                 :placeholder="t('keyDetailPanels.hash.searchPlaceholder')"
             >
                 <template #prefix>
-                    <el-icon><Search /></el-icon>
+                    <el-icon>
+                        <Search/>
+                    </el-icon>
                 </template>
             </el-input>
         </div>
@@ -63,19 +65,19 @@
                                         <div class="virtual-table-cell action-cell">
                                             <div class="row-actions">
                                                 <el-tooltip :content="t('keyDetailPanels.common.edit')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" type="success" plain :icon="Edit" @click="handleEditField(data[index])" />
+                                                    <el-button circle size="small" type="success" plain :icon="Edit" @click="handleEditField(data[index])"/>
                                                 </el-tooltip>
 
                                                 <el-tooltip :content="t('keyDetailPanels.common.copyCommand')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" type="primary" plain :icon="DocumentCopy" @click="handleCopyFieldCommand(data[index])" />
+                                                    <el-button circle size="small" type="primary" plain :icon="DocumentCopy" @click="handleCopyFieldCommand(data[index])"/>
                                                 </el-tooltip>
 
                                                 <el-tooltip :content="t('keyDetailPanels.common.view')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" plain :icon="View" @click="handleViewField(data[index])" />
+                                                    <el-button circle size="small" plain :icon="View" @click="handleViewField(data[index])"/>
                                                 </el-tooltip>
 
                                                 <el-tooltip :content="t('keyDetailPanels.common.delete')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" type="danger" :icon="Delete" :loading="deletingField === data[index].field" @click="handleDeleteField(data[index])" />
+                                                    <el-button circle size="small" type="danger" :icon="Delete" :loading="deletingField === data[index].field" @click="handleDeleteField(data[index])"/>
                                                 </el-tooltip>
                                             </div>
                                         </div>
@@ -88,31 +90,13 @@
             </div>
         </div>
 
-        <!-- 底部加载区：沿用 List 详情底部样式，真实接入 Hash 游标扫描能力。 -->
-        <div class="load-footer">
-            <el-button
-                type="primary"
-                plain
-                class="load-btn"
-                :loading="isLoadingMore"
-                :disabled="!hasMore || isLoadingAll"
-                @click="handleLoadMore"
-            >
-                {{ t('keyDetailPanels.common.loadMore') }}
-            </el-button>
-
-            <el-button
-                type="warning"
-                plain
-                class="load-btn"
-                :loading="isLoadingAll"
-                :disabled="!hasMore || isLoadingMore"
-                @click="handleLoadAll"
-            >
-                {{ t('keyDetailPanels.common.loadAll') }}
-            </el-button>
-        </div>
-
+        <DetailLoadFooter
+            :has-more="hasMore"
+            :loading-more="isLoadingMore"
+            :loading-all="isLoadingAll"
+            @load-all="handleLoadAll"
+            @load-more="handleLoadMore"
+        />
         <!-- Hash 字段编辑弹窗：新增和编辑共用同一套字段表单。 -->
         <el-dialog
             v-model="fieldEditorVisible"
@@ -122,7 +106,7 @@
         >
             <template #header>
                 <!-- 弹窗标题：Hash 字段新增和编辑共用表单，使用编辑图标表达字段变更。 -->
-                <DialogTitle :icon="Edit" :title="fieldEditorTitle" />
+                <DialogTitle :icon="Edit" :title="fieldEditorTitle"/>
             </template>
 
             <el-form label-width="72px" class="field-editor-form" @submit.prevent>
@@ -172,7 +156,7 @@
         >
             <template #header>
                 <!-- 弹窗标题：查看完整 Hash 字段内容，使用预览图标提示只读。 -->
-                <DialogTitle :icon="View" :title="t('keyDetailPanels.hash.viewTitle')" />
+                <DialogTitle :icon="View" :title="t('keyDetailPanels.hash.viewTitle')"/>
             </template>
 
             <div class="field-viewer">
@@ -181,7 +165,7 @@
                     <span class="viewer-field-name">{{ viewingField?.field }}</span>
                 </div>
 
-                <ViewerTextarea :model-value="viewingField?.value || ''" :height="180" />
+                <ViewerTextarea :model-value="viewingField?.value || ''" :height="180"/>
             </div>
 
             <template #footer>
@@ -197,16 +181,17 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
-import { ElAutoResizer as AutoResizer, ElMessage, ElMessageBox, FixedSizeList } from 'element-plus'
-import { Copy as DocumentCopy, Delete, Edit, Plus, PreviewOpen as View, Search } from '@icon-park/vue-next'
+import {computed, reactive, ref, watch} from 'vue'
+import {ElAutoResizer as AutoResizer, ElMessage, ElMessageBox, FixedSizeList} from 'element-plus'
+import {Copy as DocumentCopy, Delete, Edit, Plus, PreviewOpen as View, Search} from '@icon-park/vue-next'
 import DialogTitle from '../common/DialogTitle.vue'
 import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
-import { useI18n } from '../../i18n/index.js'
+import DetailLoadFooter from './common/DetailLoadFooter.vue'
+import {useI18n} from '../../i18n/index.js'
 
 // 国际化文案读取函数：驱动 Hash 表格、弹窗和操作反馈文案。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 组件入参：tabId 用于 IPC 定位连接，keyData 是 KeyDetailPanel 加载后的 Hash 详情数据。
 const props = defineProps({
@@ -357,7 +342,7 @@ const runRedisCommand = async (command, args) => {
     const response = await window.api.redis.executeCommand(props.tabId, command, args)
 
     if (!response.success) {
-        throw new Error(response.error || t('keyDetailPanels.common.messages.commandFail', { value: command }))
+        throw new Error(response.error || t('keyDetailPanels.common.messages.commandFail', {value: command}))
     }
 
     return response.data?.result
@@ -374,9 +359,9 @@ const upsertLoadedField = (field, value, isNewField = false) => {
     const currentIndex = nextFields.findIndex((item) => String(item.field) === field)
 
     if (currentIndex >= 0) {
-        nextFields[currentIndex] = { field, value }
+        nextFields[currentIndex] = {field, value}
     } else {
-        nextFields.unshift({ field, value })
+        nextFields.unshift({field, value})
     }
 
     loadedFields.value = nextFields
@@ -444,7 +429,7 @@ const handleSaveField = async () => {
             const originalIndex = nextFields.findIndex((item) => String(item.field) === originalField)
 
             if (originalIndex >= 0) {
-                nextFields[originalIndex] = { field, value }
+                nextFields[originalIndex] = {field, value}
                 loadedFields.value = nextFields
             } else {
                 upsertLoadedField(field, value, false)
@@ -505,7 +490,7 @@ const handleViewField = (row) => {
 const handleDeleteField = async (row) => {
     try {
         await ElMessageBox.confirm(
-            t('keyDetailPanels.hash.confirmDelete', { value: row.field }),
+            t('keyDetailPanels.hash.confirmDelete', {value: row.field}),
             t('keyDetailPanels.hash.deleteTitle'),
             {
                 confirmButtonText: t('keyDetail.actions.delete'),
@@ -573,7 +558,7 @@ const handleLoadMore = async () => {
     try {
         const start = loadedFields.value.length
         const stop = Math.min(start + HASH_PAGE_SIZE - 1, hashTotalSize.value - 1)
-        const { items, size } = await fetchHashRange(start, stop)
+        const {items, size} = await fetchHashRange(start, stop)
 
         hashTotalSize.value = size
         loadedFields.value = mergeHashFields(loadedFields.value, items)
@@ -598,7 +583,7 @@ const handleLoadAll = async () => {
     try {
         const start = loadedFields.value.length
         const stop = hashTotalSize.value - 1
-        const { items, size } = await fetchHashRange(start, stop)
+        const {items, size} = await fetchHashRange(start, stop)
 
         hashTotalSize.value = size
         loadedFields.value = mergeHashFields(loadedFields.value, items)
@@ -615,12 +600,12 @@ watch(
     (nextKeyData) => {
         loadedFields.value = Array.isArray(nextKeyData?.value)
             ? [...nextKeyData.value]
-            : Object.entries(nextKeyData?.value || {}).map(([field, value]) => ({ field, value }))
+            : Object.entries(nextKeyData?.value || {}).map(([field, value]) => ({field, value}))
         hashTotalSize.value = Number(nextKeyData?.size) || loadedFields.value.length
         isLoadingMore.value = false
         isLoadingAll.value = false
     },
-    { immediate: true }
+    {immediate: true}
 )
 </script>
 
@@ -795,22 +780,6 @@ html.dark .field-tag {
     margin-left: 0;
 }
 
-/* 底部加载操作区：和 List 详情底部保持一致的边线、内边距和按钮排列。 */
-.load-footer {
-    display: flex;
-    gap: 8px;
-    padding: 8px 0 0 0;
-    flex-shrink: 0;
-    align-items: center;
-    box-sizing: border-box;
-}
-
-/* 底部加载按钮：等宽、固定高度，沿用 List 详情的紧凑操作栏视觉。 */
-.load-btn {
-    flex: 1;
-    height: 30px;
-    margin-left: 0;
-}
 
 /* 字段编辑表单：给弹窗内容留出稳定间距，避免 textarea 贴边。 */
 .field-editor-form {

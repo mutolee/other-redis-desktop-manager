@@ -208,5 +208,5 @@ export const matchedExample = (command) => {
             && normalizedCommand !== normalizedExample
     })
 
-    return example ? { matched: true, result: example } : { matched: false }
+    return example ? {matched: true, result: example} : {matched: false}
 }

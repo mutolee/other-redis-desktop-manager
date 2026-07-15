@@ -2,20 +2,66 @@
     ConnectionConfigMoveDialog.vue
     描述：移动连接配置到其他分组的对话框
  -->
+<template>
+    <el-dialog v-model="dialogVisible" width="500px"
+               :close-on-click-modal="false"
+               :close-on-press-escape="false"
+               @close="handleCancel">
+        <template #header>
+            <!-- 弹窗标题：移动连接到分组使用移动图标，提示这是归类操作。 -->
+            <DialogTitle :icon="MoveOne" :title="t('dialogs.moveConnection.title')"/>
+        </template>
+        <el-form ref="formRef" :model="{targetGroupName}" :rules="formRules" :label-width="formLabelWidth" label-position="right">
+            <el-form-item :label="t('dialogs.moveConnection.connectionName')">
+                <el-input
+                    :value="connection?.name || ''"
+                    disabled
+                    style="width: 100%"
+                />
+            </el-form-item>
+            <el-form-item :label="t('dialogs.moveConnection.currentGroup')">
+                <el-input
+                    :value="connection?.group_name || ''"
+                    :maxlength="25"
+                    disabled
+                    style="width: 100%"
+                />
+            </el-form-item>
+            <el-form-item :label="t('dialogs.moveConnection.targetGroup')" prop="targetGroupName">
+                <el-autocomplete
+                    v-model="targetGroupName"
+                    :fetch-suggestions="handleGroupQuery"
+                    :placeholder="t('dialogs.moveConnection.targetPlaceholder')"
+                    maxlength="25"
+                    clearable
+                    style="width: 100%"
+                    @keyup.enter="handleSubmit"
+                />
+            </el-form-item>
+        </el-form>
+        <template #footer>
+            <div class="dialog-footer">
+                <el-button @click="handleCancel">{{ t('common.cancel') }}</el-button>
+                <el-button type="primary" @click="handleSubmit">{{ t('common.confirm') }}</el-button>
+            </div>
+        </template>
+    </el-dialog>
+</template>
+
 <script setup>
-import { computed, ref, watch } from 'vue'
-import { MoveOne } from '@icon-park/vue-next'
-import { ElMessage } from 'element-plus'
-import { storeToRefs } from 'pinia'
-import { connectConfigRepository } from '../../database/repositories/ConnectConfigRepository.js'
-import { eventBus } from '../../utils/eventBus.js'
-import { normalizeConnectionGroupName } from '../../utils/connectionGroupUtil.js'
-import { useBaseStateStore } from '../../stores/modules/baseStateStore.js'
+import {computed, ref, watch} from 'vue'
+import {MoveOne} from '@icon-park/vue-next'
+import {ElMessage} from 'element-plus'
+import {storeToRefs} from 'pinia'
+import {connectConfigRepository} from '../../database/repositories/ConnectConfigRepository.js'
+import {eventBus} from '../../utils/eventBus.js'
+import {normalizeConnectionGroupName} from '../../utils/connectionGroupUtil.js'
+import {useBaseStateStore} from '../../stores/modules/baseStateStore.js'
 import DialogTitle from '../common/DialogTitle.vue'
-import { useI18n } from '../../i18n/index.js'
+import {useI18n} from '../../i18n/index.js'
 
 // 国际化文案读取函数：驱动移动分组弹窗表单、语言布局、校验和操作反馈。
-const { language, t } = useI18n()
+const {language, t} = useI18n()
 
 // 组件入参：控制弹窗显示，并传入当前要移动的连接配置。
 const props = defineProps({
@@ -46,7 +92,7 @@ const formLabelWidth = computed(() => language.value === 'zh-CN' ? '100px' : '12
 const formRef = ref(null)
 const targetGroupName = ref('')
 // 基础状态 store：移动成功后根据搜索模式决定刷新搜索结果还是全量连接列表。
-const { searchModeState } = storeToRefs(useBaseStateStore())
+const {searchModeState} = storeToRefs(useBaseStateStore())
 
 // 表单验证规则
 const formRules = {
@@ -164,53 +210,6 @@ const handleCancel = () => {
     resetForm()
 }
 </script>
-
-<template>
-    <el-dialog v-model="dialogVisible" width="500px"
-               :close-on-click-modal="false"
-               :close-on-press-escape="false"
-               @close="handleCancel">
-        <template #header>
-            <!-- 弹窗标题：移动连接到分组使用移动图标，提示这是归类操作。 -->
-            <DialogTitle :icon="MoveOne" :title="t('dialogs.moveConnection.title')" />
-        </template>
-
-        <el-form ref="formRef" :model="{targetGroupName}" :rules="formRules" :label-width="formLabelWidth" label-position="right">
-            <el-form-item :label="t('dialogs.moveConnection.connectionName')">
-                <el-input
-                    :value="connection?.name || ''"
-                    disabled
-                    style="width: 100%"
-                />
-            </el-form-item>
-            <el-form-item :label="t('dialogs.moveConnection.currentGroup')">
-                <el-input
-                    :value="connection?.group_name || ''"
-                    :maxlength="25"
-                    disabled
-                    style="width: 100%"
-                />
-            </el-form-item>
-            <el-form-item :label="t('dialogs.moveConnection.targetGroup')" prop="targetGroupName">
-                <el-autocomplete
-                    v-model="targetGroupName"
-                    :fetch-suggestions="handleGroupQuery"
-                    :placeholder="t('dialogs.moveConnection.targetPlaceholder')"
-                    maxlength="25"
-                    clearable
-                    style="width: 100%"
-                    @keyup.enter="handleSubmit"
-                />
-            </el-form-item>
-        </el-form>
-        <template #footer>
-            <div class="dialog-footer">
-                <el-button @click="handleCancel">{{ t('common.cancel') }}</el-button>
-                <el-button type="primary" @click="handleSubmit">{{ t('common.confirm') }}</el-button>
-            </div>
-        </template>
-    </el-dialog>
-</template>
 
 <style scoped>
 </style>

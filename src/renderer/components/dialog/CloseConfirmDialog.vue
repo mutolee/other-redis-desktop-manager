@@ -2,16 +2,48 @@
   关闭确认对话框
   描述：提供关闭窗口时的确认提示，让用户选择：最小化到托盘、退出或取消
  -->
+<template>
+    <el-dialog
+        v-model="dialogVisible"
+        width="400px"
+        :close-on-click-modal="false"
+        :close-on-press-escape="false"
+        @close="handleCancel"
+    >
+        <template #header>
+            <!-- 弹窗标题：关闭确认属于提示操作，使用问号图标降低误操作风险。 -->
+            <DialogTitle :icon="Help" :title="t('dialogs.closeConfirm.title')"/>
+        </template>
+        <div class="dialog-content">
+            <el-text>{{ t('dialogs.closeConfirm.message') }}</el-text>
+            <el-radio-group v-model="selectedAction" class="select-radio-group">
+                <el-radio label="hide">{{ t('dialogs.closeConfirm.hideToTray') }}</el-radio>
+                <el-radio label="quit">{{ t('dialogs.closeConfirm.quit') }}</el-radio>
+            </el-radio-group>
+        </div>
+
+        <template #footer>
+            <div class="dialog-footer">
+                <el-checkbox v-model="neverTipsAgain">{{ t('dialogs.closeConfirm.neverTipsAgain') }}</el-checkbox>
+                <span class="dialog-footer-buttons">
+                    <el-button @click="handleCancel">{{ t('common.cancel') }}</el-button>
+                    <el-button type="primary" @click="handleConfirm">{{ t('common.confirm') }}</el-button>
+                </span>
+            </div>
+        </template>
+    </el-dialog>
+</template>
+
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
-import { Help } from '@icon-park/vue-next'
-import { storeToRefs } from 'pinia'
-import { useUserSettingsStore } from '../../stores/modules/userSettingsStore.js'
+import {computed, nextTick, onMounted, onUnmounted, ref} from 'vue'
+import {Help} from '@icon-park/vue-next'
+import {storeToRefs} from 'pinia'
+import {useUserSettingsStore} from '../../stores/modules/userSettingsStore.js'
 import DialogTitle from '../common/DialogTitle.vue'
-import { useI18n } from '../../i18n/index.js'
+import {useI18n} from '../../i18n/index.js'
 
 // 国际化文案读取函数：驱动关闭确认弹窗标题、选项和按钮文案。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 组件入参：由标题栏控制关闭确认弹窗的显示状态。
 const props = defineProps({
@@ -35,7 +67,7 @@ const dialogVisible = computed({
 const neverTipsAgain = ref(false)
 const selectedAction = ref('hide')
 // 用户设置 store：读写关闭行为偏好。
-const { closeManagement } = storeToRefs(useUserSettingsStore())
+const {closeManagement} = storeToRefs(useUserSettingsStore())
 // 关闭动作延迟定时器：弹窗动画结束前延迟执行窗口隐藏/退出，卸载时需要清理。
 const closeActionTimer = ref(null)
 
@@ -89,38 +121,6 @@ const handleCancel = () => {
     dialogVisible.value = false
 }
 </script>
-
-<template>
-    <el-dialog
-        v-model="dialogVisible"
-        width="400px"
-        :close-on-click-modal="false"
-        :close-on-press-escape="false"
-        @close="handleCancel"
-    >
-        <template #header>
-            <!-- 弹窗标题：关闭确认属于提示操作，使用问号图标降低误操作风险。 -->
-            <DialogTitle :icon="Help" :title="t('dialogs.closeConfirm.title')" />
-        </template>
-        <div class="dialog-content">
-            <el-text>{{ t('dialogs.closeConfirm.message') }}</el-text>
-            <el-radio-group v-model="selectedAction" class="select-radio-group">
-                <el-radio label="hide">{{ t('dialogs.closeConfirm.hideToTray') }}</el-radio>
-                <el-radio label="quit">{{ t('dialogs.closeConfirm.quit') }}</el-radio>
-            </el-radio-group>
-        </div>
-
-        <template #footer>
-            <div class="dialog-footer">
-                <el-checkbox v-model="neverTipsAgain">{{ t('dialogs.closeConfirm.neverTipsAgain') }}</el-checkbox>
-                <span class="dialog-footer-buttons">
-                    <el-button @click="handleCancel">{{ t('common.cancel') }}</el-button>
-                    <el-button type="primary" @click="handleConfirm">{{ t('common.confirm') }}</el-button>
-                </span>
-            </div>
-        </template>
-    </el-dialog>
-</template>
 
 <style scoped>
 .dialog-content {

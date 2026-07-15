@@ -16,7 +16,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import {computed} from 'vue'
 
 // 组件入参：modelValue 是展示文本，height 控制查看弹窗中文本域的固定高度。
 const props = defineProps({

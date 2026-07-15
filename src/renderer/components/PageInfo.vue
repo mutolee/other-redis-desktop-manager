@@ -11,7 +11,7 @@
             :element-loading-text="loadingText"
         >
             <!-- 连接失败或已断开时，展示统一失败页 -->
-            <PageFailed v-if="isConnectionFailed" />
+            <PageFailed v-if="isConnectionFailed"/>
 
             <!-- 连接成功后，展示 Key 列表和 Key 详情分栏 -->
             <template v-else-if="isConnectionReady">
@@ -25,7 +25,9 @@
                                 :db-index="currentDbIndex"
                                 :renamed-key-patch="renamedKeyPatch"
                                 :deleted-key-patch="deletedKeyPatch"
+                                :reset-version="keyListResetVersion"
                                 @select="onSelectKey"
+                                @close-all-opened-keys="closeAllDetailTabs"
                             />
                         </el-card>
                     </template>
@@ -40,28 +42,28 @@
                                     type="card"
                                     class="detail-tabs"
                                 >
-                                     <el-tab-pane
-                                         v-for="tab in detailTabs"
-                                         :key="tab.key"
-                                         :name="tab.key"
-                                     >
-                                         <template #label>
-                                             <!-- 详情 tab 标题：左侧 Key 名称可省略，右侧关闭按钮常驻显示。 -->
-                                             <span class="detail-tab-label">
+                                    <el-tab-pane
+                                        v-for="tab in detailTabs"
+                                        :key="tab.key"
+                                        :name="tab.key"
+                                    >
+                                        <template #label>
+                                            <!-- 详情 tab 标题：左侧 Key 名称可省略，右侧关闭按钮常驻显示。 -->
+                                            <span class="detail-tab-label">
                                                  <span class="detail-tab-title">{{ tab.label }}</span>
                                                  <button
                                                      class="detail-tab-close-btn"
                                                      type="button"
                                                      @click.stop="closeDetailTab(tab.key)"
                                                  >
-                                                     <CloseSmall />
+                                                     <CloseSmall/>
                                                  </button>
                                              </span>
-                                         </template>
-                                     </el-tab-pane>
-                                 </el-tabs>
-                             </div>
-                         </template>
+                                        </template>
+                                    </el-tab-pane>
+                                </el-tabs>
+                            </div>
+                        </template>
                         <el-card shadow="never" class="content-right">
                             <!-- 已打开详情内容：所有 tab 常驻挂载，切换时只隐藏/显示，避免重新加载 Redis 数据。 -->
                             <div
@@ -80,7 +82,7 @@
                             </div>
 
                             <!-- 空状态：保留在 el-card__body 内，未打开 Key 时展示。 -->
-                            <el-empty v-if="detailTabs.length === 0" class="detail-empty" :description="t('pageInfo.selectKeyEmpty')" />
+                            <el-empty v-if="detailTabs.length === 0" class="detail-empty" :description="t('pageInfo.selectKeyEmpty')"/>
                         </el-card>
                     </template>
                 </ResizableSplitPane>
@@ -94,18 +96,20 @@
  * Key 浏览页面骨架组件。
  * 负责根据连接状态切换页面主体，并承载左侧 Key 列表、右侧 Key 详情与中间拖拽分割线。
  */
-import { computed, ref, watch } from 'vue'
-import { CloseSmall } from '@icon-park/vue-next'
-import { storeToRefs } from 'pinia'
-import { useI18n } from '../i18n/index.js'
-import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
+import {computed, onMounted, onUnmounted, ref, watch} from 'vue'
+import {CloseSmall} from '@icon-park/vue-next'
+import {storeToRefs} from 'pinia'
+import {useI18n} from '../i18n/index.js'
+import {eventBus} from '../utils/eventBus.js'
+import {normalizeKeySeparator} from '../utils/keyListTreeUtil.js'
+import {useConnectionConfigsStore} from '../stores/modules/connectionConfigsStore.js'
 import PageFailed from './PageFailed.vue'
 import KeyListPanel from './KeyListPanel.vue'
 import KeyDetailPanel from './KeyDetailPanel.vue'
 import ResizableSplitPane from './drag/ResizableSplitPane.vue'
 
 // 国际化文案读取函数：驱动连接加载遮罩和右侧详情空状态文案。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 组件入参：使用 tabId 标识当前打开的连接页签，用于查找对应连接配置与子面板数据。
 const props = defineProps({
@@ -116,7 +120,7 @@ const props = defineProps({
 })
 
 // 从连接配置 store 中提取当前所有已打开连接，供本组件按 tabId 定位当前连接状态。
-const { openedConnectionConfigs } = storeToRefs(useConnectionConfigsStore())
+const {openedConnectionConfigs} = storeToRefs(useConnectionConfigsStore())
 
 // 当前标签页对应的连接配置，用于驱动页面状态与 db 选择。
 const currOpenedConnectionConfig = computed(() =>
@@ -149,6 +153,9 @@ const loadingText = computed(() => {
 // 当前连接选中的 db 索引，提供给左侧 Key 列表刷新使用。
 const currentDbIndex = computed(() => currOpenedConnectionConfig.value?.db_index ?? 0)
 
+// 当前 Key 层级分隔符：详情 tab 重命名后需要和左侧树形目录保持同一套分隔规则。
+const currentKeySeparator = computed(() => normalizeKeySeparator(currOpenedConnectionConfig.value?.key_split))
+
 // 左侧面板宽度百分比，拖拽时在限制范围内动态变化。
 const leftWidth = ref(28)
 
@@ -160,6 +167,9 @@ const renamedKeyPatch = ref(null)
 
 // 左侧 Key 列表局部删除补丁：详情侧删除成功后，通知 KeyListPanel 原地移除已加载列表项。
 const deletedKeyPatch = ref(null)
+
+// 左侧 Key 列表重置版本号：顶部刷新当前页时递增，驱动 KeyListPanel 清空搜索并重新扫描。
+const keyListResetVersion = ref(0)
 
 // 当前激活的 Key 详情 tab 名称，与 Element Plus tabs 的 v-model 绑定。
 const activeDetailTabKey = ref('')
@@ -219,10 +229,18 @@ const closeDetailTab = (tabKey) => {
 }
 
 /**
+ * 关闭当前连接页右侧已经打开的全部 Key 详情 tab。
+ */
+const closeAllDetailTabs = () => {
+    detailTabs.value = []
+    activeDetailTabKey.value = ''
+}
+
+/**
  * 同步详情头部重命名后的 Key tab。
  * @param {{oldKey: string, newKey: string}} payload 重命名前后的 Key 名称
  */
-const handleDetailKeyRenamed = ({ oldKey, newKey }) => {
+const handleDetailKeyRenamed = ({oldKey, newKey}) => {
     const targetTab = detailTabs.value.find((tab) => tab.key === oldKey)
 
     if (!targetTab) {
@@ -230,7 +248,7 @@ const handleDetailKeyRenamed = ({ oldKey, newKey }) => {
     }
 
     targetTab.key = newKey
-    targetTab.label = newKey.split(':').pop() || newKey
+    targetTab.label = newKey.split(currentKeySeparator.value).pop() || newKey
     targetTab.displayKey = targetTab.label
     activeDetailTabKey.value = newKey
     renamedKeyPatch.value = {
@@ -245,7 +263,7 @@ const handleDetailKeyRenamed = ({ oldKey, newKey }) => {
  * 删除成功后不重新扫描列表，只通知 KeyListPanel 移除当前已加载结果中的目标 Key。
  * @param {{key: string}} payload 被删除的 Key 名称
  */
-const handleDetailKeyDeleted = ({ key }) => {
+const handleDetailKeyDeleted = ({key}) => {
     if (!key) {
         return
     }
@@ -256,6 +274,49 @@ const handleDetailKeyDeleted = ({ key }) => {
     }
     closeDetailTab(key)
 }
+
+/**
+ * 响应左侧 Key 列表右键删除。
+ * KeyListPanel 已经自行移除了左侧列表项，这里只负责关闭右侧对应详情 tab。
+ * @param {{tabId: string|number, key: string}} payload 删除事件
+ */
+const handleKeyListKeyDeleted = ({tabId: deletedTabId, key}) => {
+    if (String(deletedTabId) !== String(props.tabId) || !key) {
+        return
+    }
+
+    closeDetailTab(key)
+}
+
+/**
+ * 重置当前 PageInfo。
+ * 顶部刷新当前连接时调用：关闭右侧详情 tabs，并让左侧 KeyListPanel 回到全量列表。
+ * @param {{tabId: string|number}} payload 顶部刷新传入的连接页标识
+ */
+const handleResetPageInfo = (payload = {}) => {
+    if (String(payload.tabId) !== props.tabId) {
+        return
+    }
+
+    detailTabs.value = []
+    activeDetailTabKey.value = ''
+    renamedKeyPatch.value = null
+    deletedKeyPatch.value = null
+    keyListResetVersion.value += 1
+}
+
+onMounted(() => {
+    // 监听顶部刷新事件，只重置当前活动连接页，避免 KeepAlive 下其他页签被误清空。
+    eventBus.on('reset-page-info', handleResetPageInfo)
+    // 监听左侧右键删除 Key 事件，关闭右侧已经打开的同名详情 tab。
+    eventBus.on('key-list-key-deleted', handleKeyListKeyDeleted)
+})
+
+onUnmounted(() => {
+    // 释放事件总线监听，避免组件重建后重复响应顶部刷新。
+    eventBus.off('reset-page-info', handleResetPageInfo)
+    eventBus.off('key-list-key-deleted', handleKeyListKeyDeleted)
+})
 
 watch(currentDbIndex, () => {
     // 切换 DB 后清空详情 tab，避免显示上一个库里的 Key 详情。

@@ -3,12 +3,12 @@
  * 负责展示启动页，并在短暂过渡后关闭启动窗口、创建主业务窗口。
  */
 import electron from 'electron'
-import { attachRendererDiagnostics, createSecureWebPreferences, loadRendererRoute } from '../managers/WindowsManager.js'
-import { createTrayManager } from '../managers/TrayManager.js'
-import { createMainWindow } from './mainWindow.js'
-import { createLogger } from '../utils/logger.js'
+import {attachRendererDiagnostics, createSecureWebPreferences, loadRendererRoute} from '../managers/WindowsManager.js'
+import {createTrayManager} from '../managers/TrayManager.js'
+import {createMainWindow} from './mainWindow.js'
+import {createLogger} from '../utils/logger.js'
 
-const { BrowserWindow } = electron
+const {BrowserWindow} = electron
 const log = createLogger('splash-window')
 
 /**

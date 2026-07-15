@@ -2,56 +2,6 @@
     SideBarMenu.vue
     描述：侧边栏连接菜单。展示连接分组、连接项、导出选择状态、加载中和空态。
  -->
-<script setup>
-import { FolderOpen, LinkThree, Loading, More } from '@icon-park/vue-next'
-import { storeToRefs } from 'pinia'
-import { computed, ref } from 'vue'
-import { useI18n } from '../i18n/index.js'
-import { eventBus } from '../utils/eventBus.js'
-import {
-    handleExportSelected,
-    handleSelectAll,
-    handleSelectNone,
-    isGroupIndeterminate,
-    isGroupSelected,
-    toggleGroupSelection,
-    toggleItemSelection
-} from '../utils/connectConfigExportUtil.js'
-import { useBaseStateStore } from '../stores/modules/baseStateStore.js'
-import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
-import { useUserSettingsStore } from '../stores/modules/userSettingsStore.js'
-import SideBarMenuAction from './SideBarMenuAction.vue'
-import SideBarMenuEmpty from './SideBarMenuEmpty.vue'
-
-// 国际化文案读取函数：驱动侧边栏连接列表加载态和导出操作文案。
-const { t } = useI18n()
-
-// 组件入参：接收侧边栏外层传入的加载状态，用来区分“连接还在加载中”和“连接列表真实为空”。
-const props = defineProps({
-    isLoading: {
-        type: Boolean,
-        default: false
-    }
-})
-
-// 基础状态 store：导出模式决定是否显示复选框和导出操作栏。
-const { exportModeState } = storeToRefs(useBaseStateStore())
-// 用户设置 store：侧边栏折叠状态影响菜单文本、更多按钮和空态展示。
-const { sideCollapseState } = storeToRefs(useUserSettingsStore())
-// 连接配置 store：菜单树、当前激活连接和导出选中项都由这里驱动。
-const { activeConnectionConfigId, selectedIds, connectionConfigs, connectionConfigsTree } = storeToRefs(useConnectionConfigsStore())
-const defaultOpened = ref(['group_name_1'])
-
-// 计算属性：是否显示下拉菜单（优化性能）
-const showMoreDropdown = computed(() => !sideCollapseState.value && !exportModeState.value)
-const showExportCheckbox = computed(() => !sideCollapseState.value && exportModeState.value)
-// 初始加载占位：当连接列表还没回来且当前确实没有任何数据时，显示 loading 而不是空态创建按钮。
-const showLoadingState = computed(() => props.isLoading && connectionConfigs.value.length === 0)
-// 空态占位：只有加载结束后依然没有任何连接配置时，才展示创建/导入按钮。
-const showEmptyState = computed(() => !props.isLoading && connectionConfigs.value.length === 0)
-
-</script>
-
 <template>
     <div class="sidebar-menu">
         <!-- 顶部操作区：初始加载阶段先隐藏，避免在数据未返回时误显示“创建连接”相关操作。 -->
@@ -68,12 +18,15 @@ const showEmptyState = computed(() => !props.isLoading && connectionConfigs.valu
                     <el-button size="small" type="success" @click="handleSelectAll(connectionConfigs, selectedIds, t)">{{ t('sideBarMenu.selectAll') }}</el-button>
                     <el-button size="small" type="warning" @click="handleSelectNone(selectedIds, t)">{{ t('sideBarMenu.selectNone') }}</el-button>
                 </div>
-                <el-button size="small" type="primary" @click="handleExportSelected(connectionConfigs, selectedIds, t)">{{ t('sideBarMenu.exportSelected').replace('{value}', selectedIds.size) }}</el-button>
+                <el-button size="small" type="primary" @click="handleExportSelected(connectionConfigs, selectedIds, t)">{{
+                        t('sideBarMenu.exportSelected').replace('{value}', selectedIds.size)
+                    }}
+                </el-button>
             </div>
             <!-- 初始加载占位：连接尚未加载完成前，避免误显示空态按钮。 -->
             <div v-if="showLoadingState" class="menu-panel-loading">
                 <el-icon class="loading-icon">
-                    <Loading />
+                    <Loading/>
                 </el-icon>
                 <span class="loading-text">{{ t('sideBarMenu.loadingConnections') }}</span>
             </div>
@@ -142,6 +95,48 @@ const showEmptyState = computed(() => !props.isLoading && connectionConfigs.valu
         </div>
     </div>
 </template>
+
+<script setup>
+import {FolderOpen, LinkThree, Loading, More} from '@icon-park/vue-next'
+import {storeToRefs} from 'pinia'
+import {computed, ref} from 'vue'
+import {useI18n} from '../i18n/index.js'
+import {eventBus} from '../utils/eventBus.js'
+import {handleExportSelected, handleSelectAll, handleSelectNone, isGroupIndeterminate, isGroupSelected, toggleGroupSelection, toggleItemSelection} from '../utils/connectConfigExportUtil.js'
+import {useBaseStateStore} from '../stores/modules/baseStateStore.js'
+import {useConnectionConfigsStore} from '../stores/modules/connectionConfigsStore.js'
+import {useUserSettingsStore} from '../stores/modules/userSettingsStore.js'
+import SideBarMenuAction from './SideBarMenuAction.vue'
+import SideBarMenuEmpty from './SideBarMenuEmpty.vue'
+
+// 国际化文案读取函数：驱动侧边栏连接列表加载态和导出操作文案。
+const {t} = useI18n()
+
+// 组件入参：接收侧边栏外层传入的加载状态，用来区分“连接还在加载中”和“连接列表真实为空”。
+const props = defineProps({
+    isLoading: {
+        type: Boolean,
+        default: false
+    }
+})
+
+// 基础状态 store：导出模式决定是否显示复选框和导出操作栏。
+const {exportModeState} = storeToRefs(useBaseStateStore())
+// 用户设置 store：侧边栏折叠状态影响菜单文本、更多按钮和空态展示。
+const {sideCollapseState} = storeToRefs(useUserSettingsStore())
+// 连接配置 store：菜单树、当前激活连接和导出选中项都由这里驱动。
+const {activeConnectionConfigId, selectedIds, connectionConfigs, connectionConfigsTree} = storeToRefs(useConnectionConfigsStore())
+const defaultOpened = ref(['group_name_1'])
+
+// 计算属性：是否显示下拉菜单（优化性能）
+const showMoreDropdown = computed(() => !sideCollapseState.value && !exportModeState.value)
+const showExportCheckbox = computed(() => !sideCollapseState.value && exportModeState.value)
+// 初始加载占位：当连接列表还没回来且当前确实没有任何数据时，显示 loading 而不是空态创建按钮。
+const showLoadingState = computed(() => props.isLoading && connectionConfigs.value.length === 0)
+// 空态占位：只有加载结束后依然没有任何连接配置时，才展示创建/导入按钮。
+const showEmptyState = computed(() => !props.isLoading && connectionConfigs.value.length === 0)
+
+</script>
 
 <style scoped>
 .sidebar-menu {
@@ -233,7 +228,7 @@ const showEmptyState = computed(() => !props.isLoading && connectionConfigs.valu
 }
 
 .menu-panel :deep(.el-menu) {
-    border-right: 1px solid var(--el-menu-bg-color);
+    border-right: none;
 }
 
 .menu-panel :deep(.el-menu:not(.el-menu--collapse) .el-sub-menu__title) {

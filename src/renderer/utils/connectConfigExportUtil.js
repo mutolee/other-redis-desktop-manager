@@ -2,7 +2,7 @@
  * 连接配置导出工具。
  * 封装批量选择、分组选择和 JSON 文件导出逻辑。
  */
-import { ElMessage } from 'element-plus'
+import {ElMessage} from 'element-plus'
 
 // 默认文案函数：工具函数被非 Vue 场景复用时，使用英文兜底避免界面语言混杂。
 const defaultTranslate = (key, fallback = '') => fallback || key
@@ -111,7 +111,7 @@ export const handleSelectNone = (selectedIds, translate = defaultTranslate) => {
 const createExportBlob = (selectedConfigs) => {
     const exportData = selectedConfigs.map((config) => {
         // 导出时移除 id，导入时由 IndexedDB 重新生成。
-        const { id, ...rest } = config
+        const {id, ...rest} = config
         return rest
     })
 

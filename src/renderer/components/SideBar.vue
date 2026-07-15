@@ -2,19 +2,74 @@
     SideBar.vue
     描述：左侧连接管理边栏。负责连接配置加载、搜索、导入导出、上下文菜单和命令面板入口。
  -->
+<template>
+    <div class="side-bar">
+        <!-- 侧边栏品牌头部。 -->
+        <SideBarHeader/>
+
+        <!-- 连接菜单主体：包含搜索、导出、连接分组和连接项。 -->
+        <SideBarMenu :is-loading="isConnectionConfigsLoading"/>
+
+        <!-- 侧边栏底部开源入口。 -->
+        <SideBarFooter/>
+
+        <!-- 创建连接对话框。 -->
+        <ConnectionConfigCreateDialog v-model:visible="connectCreateDialogVisible"
+                                      :default-group-name="defaultGroupName"
+                                      :copy-from-connection-config="copyFromConnection"
+                                      @closed="() => {defaultGroupName = ''; copyFromConnection = null}"/>
+
+        <!-- 编辑连接配置对话框。 -->
+        <ConnectionConfigEditDialog
+            v-model:visible="editDialogVisible"
+            :connection-config="editConnectionConfig"
+            @closed="() => editConnectionConfig = null"
+        />
+
+        <!-- 重命名分组对话框。 -->
+        <ConnectionConfigRenameGroupDialog
+            v-model:visible="connectionConfigRenameGroupDialogVisible"
+            :group-name="connectionConfigRenameGroupName"
+            @closed="() => connectionConfigRenameGroupName = ''"
+        />
+
+        <!-- 移动连接配置对话框。 -->
+        <ConnectionConfigMoveDialog
+            v-model:visible="connectionConfigMoveDialogVisible"
+            :connection="connectionConfigMoveDialogConnection"
+            @closed="() => connectionConfigMoveDialogConnection = null"
+        />
+
+        <!-- 共享上下文菜单：所有菜单项共用一个 Popover，减少大量菜单项下的组件数量。 -->
+        <ConnectionConfigContextMenu
+            v-model:visible="contextMenuVisible"
+            :virtual-ref="virtualRef"
+            :menu-type="contextMenuType"
+            :menu-item="contextMenuItem"
+        />
+
+        <!-- 命令行抽屉：打开时基于目标连接创建独立命令会话。 -->
+        <CommandDrawer
+            v-model:visible="commandDrawerVisible"
+            :connection="commandDrawerConnection"
+            @closed="() => commandDrawerConnection = null"
+        />
+    </div>
+</template>
+
 <script setup>
-import { storeToRefs } from 'pinia'
-import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import { useI18n } from '../i18n/index.js'
-import { eventBus } from '../utils/eventBus.js'
-import { connectConfigRepository } from '../database/repositories/ConnectConfigRepository.js'
-import { handleDeleteConnectionConfig, handleDeleteFolder } from '../utils/connectConfigDeleteUtil.js'
-import { handleImportFileSelect } from '../utils/connectConfigImportUtil.js'
-import { mergeConnectionRuntimeSettings } from '../utils/redisConnectionConfigUtil.js'
-import { useBaseStateStore } from '../stores/modules/baseStateStore.js'
-import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
-import { useUserSettingsStore } from '../stores/modules/userSettingsStore.js'
+import {storeToRefs} from 'pinia'
+import {onBeforeUnmount, onMounted, ref, shallowRef, watch} from 'vue'
+import {ElMessage} from 'element-plus'
+import {useI18n} from '../i18n/index.js'
+import {eventBus} from '../utils/eventBus.js'
+import {connectConfigRepository} from '../database/repositories/ConnectConfigRepository.js'
+import {handleDeleteConnectionConfig, handleDeleteFolder} from '../utils/connectConfigDeleteUtil.js'
+import {handleImportFileSelect} from '../utils/connectConfigImportUtil.js'
+import {mergeConnectionRuntimeSettings} from '../utils/redisConnectionConfigUtil.js'
+import {useBaseStateStore} from '../stores/modules/baseStateStore.js'
+import {useConnectionConfigsStore} from '../stores/modules/connectionConfigsStore.js'
+import {useUserSettingsStore} from '../stores/modules/userSettingsStore.js'
 import SideBarHeader from './SideBarHeader.vue'
 import SideBarFooter from './SideBarFooter.vue'
 import SideBarMenu from './SideBarMenu.vue'
@@ -26,7 +81,7 @@ import ConnectionConfigRenameGroupDialog from './dialog/ConnectionConfigRenameGr
 import CommandDrawer from './drawer/CommandDrawer.vue'
 
 // 国际化文案读取函数：驱动侧边栏连接操作反馈消息。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 连接配置 store：驱动左侧菜单数据、当前激活连接、已打开连接和批量导出选中项。
 const {
@@ -38,9 +93,9 @@ const {
     isConnectionConfigsLoading
 } = storeToRefs(useConnectionConfigsStore())
 // 基础状态 store：读取搜索模式和导出模式，控制菜单交互状态。
-const { exportModeState, searchModeState } = storeToRefs(useBaseStateStore())
+const {exportModeState, searchModeState} = storeToRefs(useBaseStateStore())
 // 系统连接设置：为连接动作补充连接超时、命令超时等运行时参数。
-const { connectionSettings } = storeToRefs(useUserSettingsStore())
+const {connectionSettings} = storeToRefs(useUserSettingsStore())
 const fileInputRef = ref(null) // 导入文件输入框引用
 const connectCreateDialogVisible = ref(false)
 const defaultGroupName = ref('') // 打开创建连接配置窗口时预填的分组名称，仅从具体分组入口创建时写入。
@@ -345,61 +400,6 @@ const handleOpenCommand = async (connection) => {
     commandDrawerConnection.value = connection
 }
 </script>
-
-<template>
-    <div class="side-bar">
-        <!-- 侧边栏品牌头部。 -->
-        <SideBarHeader/>
-
-        <!-- 连接菜单主体：包含搜索、导出、连接分组和连接项。 -->
-        <SideBarMenu :is-loading="isConnectionConfigsLoading"/>
-
-        <!-- 侧边栏底部开源入口。 -->
-        <SideBarFooter/>
-
-        <!-- 创建连接对话框。 -->
-        <ConnectionConfigCreateDialog v-model:visible="connectCreateDialogVisible"
-                                      :default-group-name="defaultGroupName"
-                                      :copy-from-connection-config="copyFromConnection"
-                                      @closed="() => {defaultGroupName = ''; copyFromConnection = null}"/>
-
-        <!-- 编辑连接配置对话框。 -->
-        <ConnectionConfigEditDialog
-            v-model:visible="editDialogVisible"
-            :connection-config="editConnectionConfig"
-            @closed="() => editConnectionConfig = null"
-        />
-
-        <!-- 重命名分组对话框。 -->
-        <ConnectionConfigRenameGroupDialog
-            v-model:visible="connectionConfigRenameGroupDialogVisible"
-            :group-name="connectionConfigRenameGroupName"
-            @closed="() => connectionConfigRenameGroupName = ''"
-        />
-
-        <!-- 移动连接配置对话框。 -->
-        <ConnectionConfigMoveDialog
-            v-model:visible="connectionConfigMoveDialogVisible"
-            :connection="connectionConfigMoveDialogConnection"
-            @closed="() => connectionConfigMoveDialogConnection = null"
-        />
-
-        <!-- 共享上下文菜单：所有菜单项共用一个 Popover，减少大量菜单项下的组件数量。 -->
-        <ConnectionConfigContextMenu
-            v-model:visible="contextMenuVisible"
-            :virtual-ref="virtualRef"
-            :menu-type="contextMenuType"
-            :menu-item="contextMenuItem"
-        />
-
-        <!-- 命令行抽屉：打开时基于目标连接创建独立命令会话。 -->
-        <CommandDrawer
-            v-model:visible="commandDrawerVisible"
-            :connection="commandDrawerConnection"
-            @closed="() => commandDrawerConnection = null"
-        />
-    </div>
-</template>
 
 <style scoped>
 .side-bar {

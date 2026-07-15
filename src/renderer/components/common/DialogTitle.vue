@@ -6,7 +6,7 @@
     <!-- 弹窗标题：左侧图标强调操作类型，右侧文字保持单行省略。 -->
     <div class="dialog-title">
         <span class="dialog-title-icon">
-            <component :is="icon" />
+            <component :is="icon"/>
         </span>
         <span class="dialog-title-text">{{ title }}</span>
     </div>

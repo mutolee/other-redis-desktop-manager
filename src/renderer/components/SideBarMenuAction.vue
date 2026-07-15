@@ -2,25 +2,6 @@
     SideBarMenuAction.vue
     描述：侧边栏连接菜单操作区。提供新建、搜索、导入、导出模式切换等入口。
  -->
-<script setup>
-import { Close, Download, Plus, Search, Upload } from '@icon-park/vue-next'
-import { storeToRefs } from 'pinia'
-import { eventBus } from '../utils/eventBus.js'
-import { useBaseStateStore } from '../stores/modules/baseStateStore.js'
-import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
-import { useUserSettingsStore } from '../stores/modules/userSettingsStore.js'
-import { useI18n } from '../i18n/index.js'
-
-// 基础状态 store：搜索模式和导出模式会影响顶部按钮可用性与展示状态。
-const { searchModeState, exportModeState } = storeToRefs(useBaseStateStore())
-// 用户设置 store：折叠时隐藏整个操作区，避免占用高度。
-const { sideCollapseState } = storeToRefs(useUserSettingsStore())
-// 连接配置 store：搜索框内容用于触发连接配置本地查询。
-const { searchKeyword } = storeToRefs(useConnectionConfigsStore())
-// 国际化文案读取函数：驱动侧边栏连接操作区 tooltip 和搜索占位文案。
-const { t } = useI18n()
-</script>
-
 <template>
     <!-- 顶部操作区：折叠状态下不占高度；展开时展示连接管理快捷入口。 -->
     <div :class="['sidebar-menu-action', { 'is-collapsed': sideCollapseState }]">
@@ -55,6 +36,25 @@ const { t } = useI18n()
         </template>
     </div>
 </template>
+
+<script setup>
+import {Close, Download, Plus, Search, Upload} from '@icon-park/vue-next'
+import {storeToRefs} from 'pinia'
+import {eventBus} from '../utils/eventBus.js'
+import {useBaseStateStore} from '../stores/modules/baseStateStore.js'
+import {useConnectionConfigsStore} from '../stores/modules/connectionConfigsStore.js'
+import {useUserSettingsStore} from '../stores/modules/userSettingsStore.js'
+import {useI18n} from '../i18n/index.js'
+
+// 基础状态 store：搜索模式和导出模式会影响顶部按钮可用性与展示状态。
+const {searchModeState, exportModeState} = storeToRefs(useBaseStateStore())
+// 用户设置 store：折叠时隐藏整个操作区，避免占用高度。
+const {sideCollapseState} = storeToRefs(useUserSettingsStore())
+// 连接配置 store：搜索框内容用于触发连接配置本地查询。
+const {searchKeyword} = storeToRefs(useConnectionConfigsStore())
+// 国际化文案读取函数：驱动侧边栏连接操作区 tooltip 和搜索占位文案。
+const {t} = useI18n()
+</script>
 
 <style scoped>
 .sidebar-menu-action {

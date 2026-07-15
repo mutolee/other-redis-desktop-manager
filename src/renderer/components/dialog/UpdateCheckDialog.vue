@@ -2,12 +2,54 @@
     UpdateCheckDialog.vue
     描述：版本检查结果弹窗。用于展示 GitHub Release 最新版本、当前版本和 Markdown 更新说明。
 -->
+<template>
+    <!-- 更新提示弹窗：保持 Element Plus Dialog 原始样式，只固定高度并让内容区滚动。 -->
+    <el-dialog
+        v-model="dialogVisible"
+        class="update-dialog"
+        width="560px"
+        append-to-body
+        :close-on-click-modal="false"
+        :close-on-press-escape="!openingReleasePage"
+        :destroy-on-close="false"
+    >
+        <template #header>
+            <!-- 弹窗标题：使用更新图标强化这是版本升级确认弹窗。 -->
+            <DialogTitle :icon="DownloadComputer" :title="t('settings.update.foundTitle')"/>
+        </template>
+        <div class="update-dialog-body">
+            <!-- 版本摘要：仅展示文字信息，不额外改变 Dialog 的原始视觉风格。 -->
+            <div class="update-version-summary">
+                <span>{{ t('settings.update.currentVersion') }}: V{{ updateInfo?.currentVersion }}</span>
+                <span>{{ t('settings.update.latestVersion') }}: V{{ updateInfo?.latestVersion }}</span>
+            </div>
+
+            <!-- 更新内容：body 内部滚动，Dialog header/footer 保持 Element Plus 原始样式。 -->
+            <el-scrollbar class="update-notes-scrollbar">
+                <div class="update-notes-title">{{ t('settings.update.releaseNotesTitle') }}</div>
+                <div class="update-notes-markdown" v-html="releaseNotesHtml"></div>
+            </el-scrollbar>
+        </div>
+
+        <template #footer>
+            <div class="update-dialog-footer">
+                <el-button :disabled="openingReleasePage" @click="dialogVisible = false">
+                    {{ t('common.cancel') }}
+                </el-button>
+                <el-button type="primary" :loading="openingReleasePage" @click="handleOpenReleasePage">
+                    {{ t('settings.update.updateNow') }}
+                </el-button>
+            </div>
+        </template>
+    </el-dialog>
+</template>
+
 <script setup>
-import { computed, ref } from 'vue'
-import { DownloadComputer } from '@icon-park/vue-next'
-import { ElMessage } from 'element-plus'
-import { useI18n } from '../../i18n/index.js'
-import { renderReleaseNotesMarkdown } from '../../utils/releaseNotesMarkdownUtil.js'
+import {computed, ref} from 'vue'
+import {DownloadComputer} from '@icon-park/vue-next'
+import {ElMessage} from 'element-plus'
+import {useI18n} from '../../i18n/index.js'
+import {renderReleaseNotesMarkdown} from '../../utils/releaseNotesMarkdownUtil.js'
 import DialogTitle from '../common/DialogTitle.vue'
 
 // 组件入参：父组件控制弹窗显隐，并传入 main 进程返回的版本更新信息。
@@ -25,7 +67,7 @@ const props = defineProps({
 const emit = defineEmits(['update:visible'])
 
 // 国际化文案：弹窗标题、按钮、版本标签和错误提示都从统一 i18n 中读取。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 打开 Release 页面状态：控制底部更新按钮 loading，避免重复跳转。
 const openingReleasePage = ref(false)
@@ -69,49 +111,6 @@ const handleOpenReleasePage = async () => {
     }
 }
 </script>
-
-<template>
-    <!-- 更新提示弹窗：保持 Element Plus Dialog 原始样式，只固定高度并让内容区滚动。 -->
-    <el-dialog
-        v-model="dialogVisible"
-        class="update-dialog"
-        width="560px"
-        append-to-body
-        :close-on-click-modal="false"
-        :close-on-press-escape="!openingReleasePage"
-        :destroy-on-close="false"
-    >
-        <template #header>
-            <!-- 弹窗标题：使用更新图标强化这是版本升级确认弹窗。 -->
-            <DialogTitle :icon="DownloadComputer" :title="t('settings.update.foundTitle')" />
-        </template>
-
-        <div class="update-dialog-body">
-            <!-- 版本摘要：仅展示文字信息，不额外改变 Dialog 的原始视觉风格。 -->
-            <div class="update-version-summary">
-                <span>{{ t('settings.update.currentVersion') }}: V{{ updateInfo?.currentVersion }}</span>
-                <span>{{ t('settings.update.latestVersion') }}: V{{ updateInfo?.latestVersion }}</span>
-            </div>
-
-            <!-- 更新内容：body 内部滚动，Dialog header/footer 保持 Element Plus 原始样式。 -->
-            <el-scrollbar class="update-notes-scrollbar">
-                <div class="update-notes-title">{{ t('settings.update.releaseNotesTitle') }}</div>
-                <div class="update-notes-markdown" v-html="releaseNotesHtml"></div>
-            </el-scrollbar>
-        </div>
-
-        <template #footer>
-            <div class="update-dialog-footer">
-                <el-button :disabled="openingReleasePage" @click="dialogVisible = false">
-                    {{ t('common.cancel') }}
-                </el-button>
-                <el-button type="primary" :loading="openingReleasePage" @click="handleOpenReleasePage">
-                    {{ t('settings.update.updateNow') }}
-                </el-button>
-            </div>
-        </template>
-    </el-dialog>
-</template>
 
 <style scoped>
 /* 更新弹窗尺寸：保留 Element Plus Dialog 原始视觉，仅固定整体高度。 */

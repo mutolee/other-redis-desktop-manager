@@ -12,7 +12,7 @@
     >
         <template #header>
             <!-- 弹窗标题：新增 Key 属于创建操作，使用加号图标强化语义。 -->
-            <DialogTitle :icon="Plus" :title="t('dialogs.addKey.title')" />
+            <DialogTitle :icon="Plus" :title="t('dialogs.addKey.title')"/>
         </template>
 
         <!-- 新增 Key 表单：先覆盖基础 Redis 类型，每种类型提供创建所需的最小初始值。 -->
@@ -37,7 +37,7 @@
                 </el-select>
             </el-form-item>
 
-            <el-form-item :label="t('dialogs.addKey.ttl')" >
+            <el-form-item :label="t('dialogs.addKey.ttl')">
                 <el-input-number
                     v-model="formData.ttl"
                     class="ttl-input"
@@ -61,7 +61,7 @@
             <!-- Hash 初始字段：Redis Hash 至少需要一个 field/value 才能创建 Key。 -->
             <template v-else-if="formData.type === 'hash'">
                 <el-form-item :label="t('keyDetailPanels.common.labels.field')" required>
-                    <el-input v-model="formData.field" :placeholder="t('dialogs.addKey.fieldPlaceholder')" clearable />
+                    <el-input v-model="formData.field" :placeholder="t('dialogs.addKey.fieldPlaceholder')" clearable/>
                 </el-form-item>
                 <el-form-item :label="t('keyDetailPanels.common.labels.value')">
                     <el-input
@@ -159,14 +159,14 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
-import { Plus } from '@icon-park/vue-next'
-import { ElMessage } from 'element-plus'
+import {computed, reactive, ref, watch} from 'vue'
+import {Plus} from '@icon-park/vue-next'
+import {ElMessage} from 'element-plus'
 import DialogTitle from '../common/DialogTitle.vue'
-import { useI18n } from '../../i18n/index.js'
+import {useI18n} from '../../i18n/index.js'
 
 // 国际化文案读取函数：驱动新增 Key 弹窗表单、校验和提交反馈。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 组件入参：visible 控制弹窗显隐，tabId 定位当前 Redis 连接。
 const props = defineProps({
@@ -191,12 +191,12 @@ const dialogVisible = computed({
 
 // 支持创建的基础 Redis 类型列表。
 const typeOptions = [
-    { label: 'String', value: 'string' },
-    { label: 'Hash', value: 'hash' },
-    { label: 'List', value: 'list' },
-    { label: 'Set', value: 'set' },
-    { label: 'ZSet', value: 'zset' },
-    { label: 'Stream', value: 'stream' }
+    {label: 'String', value: 'string'},
+    {label: 'Hash', value: 'hash'},
+    {label: 'List', value: 'list'},
+    {label: 'Set', value: 'set'},
+    {label: 'ZSet', value: 'zset'},
+    {label: 'Stream', value: 'stream'}
 ]
 
 // 表单数据：不同类型共用最小字段集合，切换类型时由命令构造函数选择需要的字段。
@@ -247,7 +247,7 @@ const parseStreamFieldsText = (text) => {
     const source = text.trim()
 
     if (!source) {
-        return { fields, errors }
+        return {fields, errors}
     }
 
     let parsedValue = null
@@ -256,12 +256,12 @@ const parseStreamFieldsText = (text) => {
         parsedValue = JSON.parse(source)
     } catch (error) {
         errors.push(t('dialogs.addKey.messages.fieldsJsonInvalid'))
-        return { fields, errors }
+        return {fields, errors}
     }
 
     if (!parsedValue || Array.isArray(parsedValue) || typeof parsedValue !== 'object') {
         errors.push(t('dialogs.addKey.messages.fieldsMustObject'))
-        return { fields, errors }
+        return {fields, errors}
     }
 
     Object.entries(parsedValue).forEach(([rawField, rawValue]) => {
@@ -277,10 +277,10 @@ const parseStreamFieldsText = (text) => {
             ? rawValue
             : JSON.stringify(rawValue)
 
-        fields.push({ field, value: value ?? '' })
+        fields.push({field, value: value ?? ''})
     })
 
-    return { fields, errors }
+    return {fields, errors}
 }
 
 /**
@@ -322,7 +322,7 @@ const validateForm = () => {
     }
 
     if (formData.type === 'stream') {
-        const { fields, errors } = parseStreamFieldsText(formData.streamFieldsText)
+        const {fields, errors} = parseStreamFieldsText(formData.streamFieldsText)
 
         if (errors.length > 0) {
             ElMessage.warning(errors[0])
@@ -346,30 +346,30 @@ const buildCreateCommand = () => {
     const key = formData.key.trim()
 
     if (formData.type === 'hash') {
-        return { command: 'HSET', args: [key, formData.field.trim(), formData.value] }
+        return {command: 'HSET', args: [key, formData.field.trim(), formData.value]}
     }
 
     if (formData.type === 'list') {
         const command = formData.listDirection === 'left' ? 'LPUSH' : 'RPUSH'
-        return { command, args: [key, formData.value] }
+        return {command, args: [key, formData.value]}
     }
 
     if (formData.type === 'set') {
-        return { command: 'SADD', args: [key, formData.member] }
+        return {command: 'SADD', args: [key, formData.member]}
     }
 
     if (formData.type === 'zset') {
-        return { command: 'ZADD', args: [key, String(formData.score), formData.member] }
+        return {command: 'ZADD', args: [key, String(formData.score), formData.member]}
     }
 
     if (formData.type === 'stream') {
         // Message ID 留空时按 Redis 约定使用 *，由 Redis 自动生成消息 ID。
         const messageId = formData.messageId.trim() || '*'
         const fieldArgs = getValidStreamFields().flatMap((item) => [item.field, item.value])
-        return { command: 'XADD', args: [key, messageId, ...fieldArgs] }
+        return {command: 'XADD', args: [key, messageId, ...fieldArgs]}
     }
 
-    return { command: 'SET', args: [key, formData.value] }
+    return {command: 'SET', args: [key, formData.value]}
 }
 
 /**
@@ -382,7 +382,7 @@ const runRedisCommand = async (command, args) => {
     const response = await window.api.redis.executeCommand(props.tabId, command, args)
 
     if (!response.success) {
-        throw new Error(response.error || t('dialogs.addKey.messages.commandFail', { value: command }))
+        throw new Error(response.error || t('dialogs.addKey.messages.commandFail', {value: command}))
     }
 
     return response.data?.result
@@ -418,7 +418,7 @@ const handleSubmit = async () => {
             return
         }
 
-        const { command, args } = buildCreateCommand()
+        const {command, args} = buildCreateCommand()
         await runRedisCommand(command, args)
 
         // TTL 只有正整数才执行 EXPIRE；-1 表示永不过期，0 没有实际意义所以忽略。
@@ -427,7 +427,7 @@ const handleSubmit = async () => {
         }
 
         ElMessage.success(t('dialogs.addKey.messages.createSuccess'))
-        emit('created', { key, type: formData.type })
+        emit('created', {key, type: formData.type})
         dialogVisible.value = false
     } catch (error) {
         ElMessage.error(error.message || t('dialogs.addKey.messages.createFail'))

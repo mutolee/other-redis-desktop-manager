@@ -19,7 +19,9 @@
                 :placeholder="t('keyDetailPanels.zset.searchPlaceholder')"
             >
                 <template #prefix>
-                    <el-icon><Search /></el-icon>
+                    <el-icon>
+                        <Search/>
+                    </el-icon>
                 </template>
             </el-input>
         </div>
@@ -68,19 +70,20 @@
                                         <div class="virtual-table-cell action-cell">
                                             <div class="row-actions">
                                                 <el-tooltip :content="t('keyDetailPanels.common.edit')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" type="success" plain :icon="Edit" @click="handleEditItem(data[index])" />
+                                                    <el-button circle size="small" type="success" plain :icon="Edit" @click="handleEditItem(data[index])"/>
                                                 </el-tooltip>
 
                                                 <el-tooltip :content="t('keyDetailPanels.common.copyCommand')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" type="primary" plain :icon="DocumentCopy" @click="handleCopyItemCommand(data[index])" />
+                                                    <el-button circle size="small" type="primary" plain :icon="DocumentCopy" @click="handleCopyItemCommand(data[index])"/>
                                                 </el-tooltip>
 
                                                 <el-tooltip :content="t('keyDetailPanels.common.view')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" plain :icon="View" @click="handleViewItem(data[index])" />
+                                                    <el-button circle size="small" plain :icon="View" @click="handleViewItem(data[index])"/>
                                                 </el-tooltip>
 
                                                 <el-tooltip :content="t('keyDetailPanels.common.delete')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" type="danger" :icon="Delete" :loading="deletingMember === data[index].member" @click="handleDeleteItem(data[index])" />
+                                                    <el-button circle size="small" type="danger" :icon="Delete" :loading="deletingMember === data[index].member"
+                                                               @click="handleDeleteItem(data[index])"/>
                                                 </el-tooltip>
                                             </div>
                                         </div>
@@ -93,31 +96,13 @@
             </div>
         </div>
 
-        <!-- 底部加载区：沿用 List 详情底部样式，真实接入 ZSet 分段拉取能力。 -->
-        <div class="load-footer">
-            <el-button
-                type="primary"
-                plain
-                class="load-btn"
-                :loading="isLoadingMore"
-                :disabled="!hasMore || isLoadingAll"
-                @click="handleLoadMore"
-            >
-                {{ t('keyDetailPanels.common.loadMore') }}
-            </el-button>
-
-            <el-button
-                type="warning"
-                plain
-                class="load-btn"
-                :loading="isLoadingAll"
-                :disabled="!hasMore || isLoadingMore"
-                @click="handleLoadAll"
-            >
-                {{ t('keyDetailPanels.common.loadAll') }}
-            </el-button>
-        </div>
-
+        <DetailLoadFooter
+            :has-more="hasMore"
+            :loading-more="isLoadingMore"
+            :loading-all="isLoadingAll"
+            @load-all="handleLoadAll"
+            @load-more="handleLoadMore"
+        />
         <!-- ZSet 成员编辑弹窗：新增和编辑共用 Score + Member 表单。 -->
         <el-dialog
             v-model="itemEditorVisible"
@@ -127,7 +112,7 @@
         >
             <template #header>
                 <!-- 弹窗标题：ZSet 成员新增和编辑共用表单，使用编辑图标表达成员变更。 -->
-                <DialogTitle :icon="Edit" :title="itemEditorTitle" />
+                <DialogTitle :icon="Edit" :title="itemEditorTitle"/>
             </template>
 
             <el-form label-width="82px" class="item-editor-form" @submit.prevent>
@@ -176,7 +161,7 @@
         >
             <template #header>
                 <!-- 弹窗标题：查看完整 ZSet 成员内容，使用预览图标提示只读。 -->
-                <DialogTitle :icon="View" :title="t('keyDetailPanels.common.viewMemberTitle')" />
+                <DialogTitle :icon="View" :title="t('keyDetailPanels.common.viewMemberTitle')"/>
             </template>
 
             <el-form label-width="82px" class="item-viewer-form">
@@ -185,7 +170,7 @@
                 </el-form-item>
 
                 <el-form-item :label="t('keyDetailPanels.common.labels.member')">
-                    <ViewerTextarea :model-value="viewingItem.member" :height="160" />
+                    <ViewerTextarea :model-value="viewingItem.member" :height="160"/>
                 </el-form-item>
             </el-form>
 
@@ -202,16 +187,17 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
-import { ElAutoResizer as AutoResizer, ElMessage, ElMessageBox, FixedSizeList } from 'element-plus'
-import { Copy as DocumentCopy, Delete, Edit, Plus, PreviewOpen as View, Search } from '@icon-park/vue-next'
+import {computed, reactive, ref, watch} from 'vue'
+import {ElAutoResizer as AutoResizer, ElMessage, ElMessageBox, FixedSizeList} from 'element-plus'
+import {Copy as DocumentCopy, Delete, Edit, Plus, PreviewOpen as View, Search} from '@icon-park/vue-next'
 import DialogTitle from '../common/DialogTitle.vue'
 import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
-import { useI18n } from '../../i18n/index.js'
+import DetailLoadFooter from './common/DetailLoadFooter.vue'
+import {useI18n} from '../../i18n/index.js'
 
 // 国际化文案读取函数：驱动 ZSet 表格、弹窗和操作反馈文案。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 组件入参：tabId 用于 IPC 定位连接，keyData 是 KeyDetailPanel 加载后的 ZSet 详情数据。
 const props = defineProps({
@@ -386,7 +372,7 @@ const runRedisCommand = async (command, args) => {
     const response = await window.api.redis.executeCommand(props.tabId, command, args)
 
     if (!response.success) {
-        throw new Error(response.error || t('keyDetailPanels.common.messages.commandFail', { value: command }))
+        throw new Error(response.error || t('keyDetailPanels.common.messages.commandFail', {value: command}))
     }
 
     return response.data?.result
@@ -449,9 +435,9 @@ const handleSaveItem = async () => {
 
         if (isEditMode.value) {
             const nextItems = loadedItems.value.filter((item) => item.member !== originalMember)
-            loadedItems.value = sortZSetItems([...nextItems, { member, score }])
+            loadedItems.value = sortZSetItems([...nextItems, {member, score}])
         } else {
-            loadedItems.value = sortZSetItems([{ member, score }, ...loadedItems.value])
+            loadedItems.value = sortZSetItems([{member, score}, ...loadedItems.value])
             zsetTotalSize.value += 1
         }
 
@@ -509,7 +495,7 @@ const handleViewItem = (row) => {
 const handleDeleteItem = async (row) => {
     try {
         await ElMessageBox.confirm(
-            t('keyDetailPanels.zset.confirmDelete', { value: row.member }),
+            t('keyDetailPanels.zset.confirmDelete', {value: row.member}),
             t('keyDetailPanels.zset.deleteTitle'),
             {
                 confirmButtonText: t('keyDetail.actions.delete'),
@@ -572,7 +558,7 @@ const handleLoadMore = async () => {
     try {
         const start = loadedItems.value.length
         const stop = Math.min(start + ZSET_PAGE_SIZE - 1, zsetTotalSize.value - 1)
-        const { items, size } = await fetchZSetRange(start, stop)
+        const {items, size} = await fetchZSetRange(start, stop)
 
         // 每次分页返回都会带最新 ZCARD，用它校正底部按钮是否还需要可点击。
         zsetTotalSize.value = size
@@ -598,7 +584,7 @@ const handleLoadAll = async () => {
     try {
         const start = loadedItems.value.length
         const stop = Math.max(start, zsetTotalSize.value - 1)
-        const { items, size } = await fetchZSetRange(start, stop)
+        const {items, size} = await fetchZSetRange(start, stop)
 
         // 加载剩余全部时同样校正总长度，兼容后台 ZSet 在查看期间发生变化。
         zsetTotalSize.value = size
@@ -619,7 +605,7 @@ watch(
         isLoadingMore.value = false
         isLoadingAll.value = false
     },
-    { immediate: true }
+    {immediate: true}
 )
 </script>
 
@@ -829,22 +815,6 @@ watch(
     margin-left: 0;
 }
 
-/* 底部加载操作区：和 List 详情底部保持一致的边线、内边距和按钮排列。 */
-.load-footer {
-    display: flex;
-    gap: 8px;
-    padding: 8px 0 0 0;
-    flex-shrink: 0;
-    align-items: center;
-    box-sizing: border-box;
-}
-
-/* 底部加载按钮：等宽、固定高度，沿用 List 详情的紧凑操作栏视觉。 */
-.load-btn {
-    flex: 1;
-    height: 30px;
-    margin-left: 0;
-}
 
 /* 成员编辑表单：给弹窗内容留出稳定间距，避免输入区贴边。 */
 .item-editor-form,

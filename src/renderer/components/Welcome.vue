@@ -2,14 +2,128 @@
     Welcome.vue
     描述：主界面的欢迎页。用于在未打开连接页时展示快速操作、最近连接和基础使用提示。
  -->
+<template>
+    <div class="welcome-panel">
+        <!-- 侧边栏折叠按钮：欢迎页没有标题栏操作区时，保留左上角入口。 -->
+        <button class="collapse" type="button" @click="handleToggleSideBar">
+            <el-icon :size="20" class="collapse-icon">
+                <MenuFoldOne v-if="sideCollapseState"/>
+                <MenuUnfoldOne v-else/>
+            </el-icon>
+        </button>
+
+        <el-scrollbar>
+            <div class="welcome-content">
+                <!-- 欢迎头部：展示产品入口语和当前空页面的引导说明。 -->
+                <header class="welcome-header">
+                    <div class="welcome-icon">
+                        <el-icon size="64">
+                            <LinkThree/>
+                        </el-icon>
+                    </div>
+                    <h1 class="welcome-title">{{ t('welcome.title') }}</h1>
+                    <p class="welcome-description">{{ t('welcome.description') }}</p>
+                </header>
+
+                <!-- 快速操作区：提供创建、导入和设置三个高频入口。 -->
+                <section class="quick-actions">
+                    <div class="action-cards">
+                        <button class="action-card" type="button" @click="handleCreateConnection">
+                            <div class="card-icon">
+                                <el-icon size="32">
+                                    <Plus/>
+                                </el-icon>
+                            </div>
+                            <h3 class="card-title">{{ t('welcome.actions.createTitle') }}</h3>
+                            <p class="card-description">{{ t('welcome.actions.createDesc') }}</p>
+                        </button>
+
+                        <button class="action-card" type="button" @click="handleImportConnections">
+                            <div class="card-icon">
+                                <el-icon size="32">
+                                    <Upload/>
+                                </el-icon>
+                            </div>
+                            <h3 class="card-title">{{ t('welcome.actions.importTitle') }}</h3>
+                            <p class="card-description">{{ t('welcome.actions.importDesc') }}</p>
+                        </button>
+
+                        <button class="action-card" type="button" @click="handleOpenSettings">
+                            <div class="card-icon">
+                                <el-icon size="32">
+                                    <SettingTwo/>
+                                </el-icon>
+                            </div>
+                            <h3 class="card-title">{{ t('welcome.actions.settingsTitle') }}</h3>
+                            <p class="card-description">{{ t('welcome.actions.settingsDesc') }}</p>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- 最近连接区：为空时展示空状态，否则展示可点击的最近连接列表。 -->
+                <section class="recent-connections">
+                    <h3 class="section-title">{{ t('welcome.recentTitle') }}</h3>
+                    <el-empty v-if="recentConnections.length === 0" :description="t('welcome.recentEmpty')"/>
+                    <div v-else class="connection-list">
+                        <button
+                            v-for="connection in recentConnections"
+                            :key="connection.id"
+                            class="connection-item"
+                            type="button"
+                            @click="handleSelectConnection(connection)"
+                        >
+                            <div class="connection-info">
+                                <el-icon class="connection-icon">
+                                    <LinkThree/>
+                                </el-icon>
+                                <div class="connection-details">
+                                    <span class="connection-group">{{ connection.group_name }}</span>
+                                    <span class="connection-name">{{ connection.name }}</span>
+                                    <span class="connection-host">{{ connection.host }}:{{ connection.port }}</span>
+                                </div>
+                                <el-text class="connection-time">{{ formatDateTime(connection.last_active_at, t) }}</el-text>
+                            </div>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- 使用提示区：展示基础操作提醒，帮助首次进入应用的用户建立操作预期。 -->
+                <section class="usage-tips">
+                    <h3 class="section-title">{{ t('welcome.tipsTitle') }}</h3>
+                    <div class="tips-list">
+                        <div class="tip-item">
+                            <el-icon class="tip-icon">
+                                <Info/>
+                            </el-icon>
+                            <span>{{ t('welcome.tips.connect') }}</span>
+                        </div>
+                        <div class="tip-item">
+                            <el-icon class="tip-icon">
+                                <Info/>
+                            </el-icon>
+                            <span>{{ t('welcome.tips.folders') }}</span>
+                        </div>
+                        <div class="tip-item">
+                            <el-icon class="tip-icon">
+                                <Info/>
+                            </el-icon>
+                            <span>{{ t('welcome.tips.sslCluster') }}</span>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </el-scrollbar>
+    </div>
+</template>
+
 <script setup>
-import { Info, LinkThree, MenuFoldOne, MenuUnfoldOne, Plus, SettingTwo, Upload } from '@icon-park/vue-next'
-import { storeToRefs } from 'pinia'
-import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
-import { useUserSettingsStore } from '../stores/modules/userSettingsStore.js'
-import { useI18n } from '../i18n/index.js'
-import { eventBus } from '../utils/eventBus.js'
-import { formatDateTime } from '../utils/dateTimeUtil.js'
+import {Info, LinkThree, MenuFoldOne, MenuUnfoldOne, Plus, SettingTwo, Upload} from '@icon-park/vue-next'
+import {storeToRefs} from 'pinia'
+import {useConnectionConfigsStore} from '../stores/modules/connectionConfigsStore.js'
+import {useUserSettingsStore} from '../stores/modules/userSettingsStore.js'
+import {useI18n} from '../i18n/index.js'
+import {eventBus} from '../utils/eventBus.js'
+import {formatDateTime} from '../utils/dateTimeUtil.js'
 
 // 连接配置 store：欢迎页使用最近连接列表，便于用户快速回到常用 Redis 连接。
 const connectionConfigsStore = useConnectionConfigsStore()
@@ -18,13 +132,13 @@ const connectionConfigsStore = useConnectionConfigsStore()
 const userSettingsStore = useUserSettingsStore()
 
 // 从连接配置 store 提取最近连接列表，驱动“最近连接”区域渲染。
-const { recentConnections } = storeToRefs(connectionConfigsStore)
+const {recentConnections} = storeToRefs(connectionConfigsStore)
 
 // 从用户设置 store 提取侧边栏折叠状态，驱动折叠按钮图标切换。
-const { sideCollapseState } = storeToRefs(userSettingsStore)
+const {sideCollapseState} = storeToRefs(userSettingsStore)
 
 // 国际化文案读取函数：驱动欢迎页标题、快捷入口、空状态和提示文案。
-const { t } = useI18n()
+const {t} = useI18n()
 
 /**
  * 切换左侧菜单折叠状态。
@@ -65,120 +179,6 @@ const handleSelectConnection = (connection) => {
     eventBus.emit('click-connection', connection.id.toString())
 }
 </script>
-
-<template>
-    <div class="welcome-panel">
-        <!-- 侧边栏折叠按钮：欢迎页没有标题栏操作区时，保留左上角入口。 -->
-        <button class="collapse" type="button" @click="handleToggleSideBar">
-            <el-icon :size="20" class="collapse-icon">
-                <MenuFoldOne v-if="sideCollapseState" />
-                <MenuUnfoldOne v-else />
-            </el-icon>
-        </button>
-
-        <el-scrollbar>
-            <div class="welcome-content">
-                <!-- 欢迎头部：展示产品入口语和当前空页面的引导说明。 -->
-                <header class="welcome-header">
-                    <div class="welcome-icon">
-                        <el-icon size="64">
-                            <LinkThree />
-                        </el-icon>
-                    </div>
-                    <h1 class="welcome-title">{{ t('welcome.title') }}</h1>
-                    <p class="welcome-description">{{ t('welcome.description') }}</p>
-                </header>
-
-                <!-- 快速操作区：提供创建、导入和设置三个高频入口。 -->
-                <section class="quick-actions">
-                    <div class="action-cards">
-                        <button class="action-card" type="button" @click="handleCreateConnection">
-                            <div class="card-icon">
-                                <el-icon size="32">
-                                    <Plus />
-                                </el-icon>
-                            </div>
-                            <h3 class="card-title">{{ t('welcome.actions.createTitle') }}</h3>
-                            <p class="card-description">{{ t('welcome.actions.createDesc') }}</p>
-                        </button>
-
-                        <button class="action-card" type="button" @click="handleImportConnections">
-                            <div class="card-icon">
-                                <el-icon size="32">
-                                    <Upload />
-                                </el-icon>
-                            </div>
-                            <h3 class="card-title">{{ t('welcome.actions.importTitle') }}</h3>
-                            <p class="card-description">{{ t('welcome.actions.importDesc') }}</p>
-                        </button>
-
-                        <button class="action-card" type="button" @click="handleOpenSettings">
-                            <div class="card-icon">
-                                <el-icon size="32">
-                                    <SettingTwo />
-                                </el-icon>
-                            </div>
-                            <h3 class="card-title">{{ t('welcome.actions.settingsTitle') }}</h3>
-                            <p class="card-description">{{ t('welcome.actions.settingsDesc') }}</p>
-                        </button>
-                    </div>
-                </section>
-
-                <!-- 最近连接区：为空时展示空状态，否则展示可点击的最近连接列表。 -->
-                <section class="recent-connections">
-                    <h3 class="section-title">{{ t('welcome.recentTitle') }}</h3>
-                    <el-empty v-if="recentConnections.length === 0" :description="t('welcome.recentEmpty')" />
-                    <div v-else class="connection-list">
-                        <button
-                            v-for="connection in recentConnections"
-                            :key="connection.id"
-                            class="connection-item"
-                            type="button"
-                            @click="handleSelectConnection(connection)"
-                        >
-                            <div class="connection-info">
-                                <el-icon class="connection-icon">
-                                    <LinkThree />
-                                </el-icon>
-                                <div class="connection-details">
-                                    <span class="connection-group">{{ connection.group_name }}</span>
-                                    <span class="connection-name">{{ connection.name }}</span>
-                                    <span class="connection-host">{{ connection.host }}:{{ connection.port }}</span>
-                                </div>
-                                <el-text class="connection-time">{{ formatDateTime(connection.last_active_at, t) }}</el-text>
-                            </div>
-                        </button>
-                    </div>
-                </section>
-
-                <!-- 使用提示区：展示基础操作提醒，帮助首次进入应用的用户建立操作预期。 -->
-                <section class="usage-tips">
-                    <h3 class="section-title">{{ t('welcome.tipsTitle') }}</h3>
-                    <div class="tips-list">
-                        <div class="tip-item">
-                            <el-icon class="tip-icon">
-                                <Info />
-                            </el-icon>
-                            <span>{{ t('welcome.tips.connect') }}</span>
-                        </div>
-                        <div class="tip-item">
-                            <el-icon class="tip-icon">
-                                <Info />
-                            </el-icon>
-                            <span>{{ t('welcome.tips.folders') }}</span>
-                        </div>
-                        <div class="tip-item">
-                            <el-icon class="tip-icon">
-                                <Info />
-                            </el-icon>
-                            <span>{{ t('welcome.tips.sslCluster') }}</span>
-                        </div>
-                    </div>
-                </section>
-            </div>
-        </el-scrollbar>
-    </div>
-</template>
 
 <style scoped>
 .welcome-panel {

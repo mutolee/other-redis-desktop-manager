@@ -2,38 +2,6 @@
     PageFailed.vue
     描述：连接失败页。展示失败原因提示、检查建议，并提供编辑连接和重新连接入口。
  -->
-<script setup>
-import { Caution as Warning, Connection, Edit } from '@icon-park/vue-next'
-import { storeToRefs } from 'pinia'
-import { useI18n } from '../i18n/index.js'
-import { eventBus } from '../utils/eventBus.js'
-import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
-import { useUserSettingsStore } from '../stores/modules/userSettingsStore.js'
-import { mergeConnectionRuntimeSettings } from '../utils/redisConnectionConfigUtil.js'
-
-// 国际化文案读取函数：驱动连接失败页的说明、建议和操作按钮文案。
-const { t } = useI18n()
-
-// 连接配置 store：读取当前打开连接，作为重新连接和编辑连接的目标。
-const { currOpenedConnectionConfig } = storeToRefs(useConnectionConfigsStore())
-// 系统连接设置：重连时继续沿用全局超时参数。
-const { connectionSettings } = storeToRefs(useUserSettingsStore())
-
-/**
- * Redis 重新连接
- */
-const reconnect = () => {
-    if (!currOpenedConnectionConfig.value || !currOpenedConnectionConfig.value.id) {
-        return
-    }
-    // 清理连接配置数据，确保只包含可序列化的内容
-    const cleanConfig = JSON.parse(JSON.stringify(currOpenedConnectionConfig.value))
-    // 将系统设置中的运行时超时参数合并到重连请求。
-    const runtimeConnectionConfig = mergeConnectionRuntimeSettings(cleanConfig, connectionSettings.value)
-    window.api.redis.connect(currOpenedConnectionConfig.value.id, runtimeConnectionConfig)
-}
-</script>
-
 <template>
     <!-- 连接失败内容区：居中展示错误说明、检查建议和恢复操作。 -->
     <div class="connection-failed-page">
@@ -80,6 +48,38 @@ const reconnect = () => {
         </div>
     </div>
 </template>
+
+<script setup>
+import {Caution as Warning, Connection, Edit} from '@icon-park/vue-next'
+import {storeToRefs} from 'pinia'
+import {useI18n} from '../i18n/index.js'
+import {eventBus} from '../utils/eventBus.js'
+import {useConnectionConfigsStore} from '../stores/modules/connectionConfigsStore.js'
+import {useUserSettingsStore} from '../stores/modules/userSettingsStore.js'
+import {mergeConnectionRuntimeSettings} from '../utils/redisConnectionConfigUtil.js'
+
+// 国际化文案读取函数：驱动连接失败页的说明、建议和操作按钮文案。
+const {t} = useI18n()
+
+// 连接配置 store：读取当前打开连接，作为重新连接和编辑连接的目标。
+const {currOpenedConnectionConfig} = storeToRefs(useConnectionConfigsStore())
+// 系统连接设置：重连时继续沿用全局超时参数。
+const {connectionSettings} = storeToRefs(useUserSettingsStore())
+
+/**
+ * Redis 重新连接
+ */
+const reconnect = () => {
+    if (!currOpenedConnectionConfig.value || !currOpenedConnectionConfig.value.id) {
+        return
+    }
+    // 清理连接配置数据，确保只包含可序列化的内容
+    const cleanConfig = JSON.parse(JSON.stringify(currOpenedConnectionConfig.value))
+    // 将系统设置中的运行时超时参数合并到重连请求。
+    const runtimeConnectionConfig = mergeConnectionRuntimeSettings(cleanConfig, connectionSettings.value)
+    window.api.redis.connect(currOpenedConnectionConfig.value.id, runtimeConnectionConfig)
+}
+</script>
 
 <style scoped>
 .connection-failed-page {

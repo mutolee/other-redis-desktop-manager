@@ -3,9 +3,9 @@
  * 控制开发者工具快捷键的启用状态，供设置页的开发模式开关调用。
  */
 import electron from 'electron'
-import { createLogger } from '../../utils/logger.js'
+import {createLogger} from '../../utils/logger.js'
 
-const { globalShortcut, ipcMain } = electron
+const {globalShortcut, ipcMain} = electron
 const log = createLogger('develop-ipc')
 
 // Electron 默认打开开发者工具的快捷键。
@@ -27,7 +27,8 @@ const enableDevToolsShortcut = () => {
 const disableDevToolsShortcut = () => {
     globalShortcut.unregister(DEVTOOLS_SHORTCUT)
 
-    const registered = globalShortcut.register(DEVTOOLS_SHORTCUT, () => {})
+    const registered = globalShortcut.register(DEVTOOLS_SHORTCUT, () => {
+    })
 
     if (!registered) {
         log.warn(`开发者工具快捷键禁用失败: ${DEVTOOLS_SHORTCUT}`)
@@ -55,7 +56,7 @@ const DEVELOP_IPC_HANDLERS = [
  * 注册开发相关 IPC 处理器。
  */
 export default () => {
-    for (const { channel, description, handler } of DEVELOP_IPC_HANDLERS) {
+    for (const {channel, description, handler} of DEVELOP_IPC_HANDLERS) {
         ipcMain.handle(channel, handler)
         log.info(`开发 IPC 已注册: ${channel} - ${description}`)
     }

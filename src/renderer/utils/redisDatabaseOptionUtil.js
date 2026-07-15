@@ -69,7 +69,7 @@ export const buildDbSizeMap = (keyspace = []) => {
  * @returns {Array<{label:string, value:string, size:number}>} Element Plus Select 选项。
  */
 export const buildDbOptions = (databaseCount, dbSizeMap = {}) => {
-    return Array.from({ length: normalizeDatabaseCount(databaseCount) }, (_, index) => ({
+    return Array.from({length: normalizeDatabaseCount(databaseCount)}, (_, index) => ({
         label: `DB ${index}`,
         value: String(index),
         size: dbSizeMap[String(index)] ?? 0

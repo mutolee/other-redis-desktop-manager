@@ -19,7 +19,9 @@
                 :placeholder="t('keyDetailPanels.set.searchPlaceholder')"
             >
                 <template #prefix>
-                    <el-icon><Search /></el-icon>
+                    <el-icon>
+                        <Search/>
+                    </el-icon>
                 </template>
             </el-input>
         </div>
@@ -60,19 +62,20 @@
                                         <div class="virtual-table-cell action-cell">
                                             <div class="row-actions">
                                                 <el-tooltip :content="t('keyDetailPanels.common.edit')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" type="success" plain :icon="Edit" @click="handleEditMember(data[index].member)" />
+                                                    <el-button circle size="small" type="success" plain :icon="Edit" @click="handleEditMember(data[index].member)"/>
                                                 </el-tooltip>
 
                                                 <el-tooltip :content="t('keyDetailPanels.common.copyCommand')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" type="primary" plain :icon="DocumentCopy" @click="handleCopyMemberCommand(data[index].member)" />
+                                                    <el-button circle size="small" type="primary" plain :icon="DocumentCopy" @click="handleCopyMemberCommand(data[index].member)"/>
                                                 </el-tooltip>
 
                                                 <el-tooltip :content="t('keyDetailPanels.common.view')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" plain :icon="View" @click="handleViewMember(data[index].member)" />
+                                                    <el-button circle size="small" plain :icon="View" @click="handleViewMember(data[index].member)"/>
                                                 </el-tooltip>
 
                                                 <el-tooltip :content="t('keyDetailPanels.common.delete')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" type="danger" :icon="Delete" :loading="deletingMember === data[index].member" @click="handleDeleteMember(data[index].member)" />
+                                                    <el-button circle size="small" type="danger" :icon="Delete" :loading="deletingMember === data[index].member"
+                                                               @click="handleDeleteMember(data[index].member)"/>
                                                 </el-tooltip>
                                             </div>
                                         </div>
@@ -86,31 +89,13 @@
         </div>
 
         <!-- Set 成员编辑弹窗：新增和编辑共用同一套 Member 表单。 -->
-        <!-- 底部加载区：Set 通过 SSCAN 游标分页，避免一次性拉取全部成员。 -->
-        <div class="load-footer">
-            <el-button
-                type="primary"
-                plain
-                class="load-btn"
-                :loading="isLoadingMore"
-                :disabled="!hasMore || isLoadingAll"
-                @click="handleLoadMore"
-            >
-                {{ t('keyDetailPanels.common.loadMore') }}
-            </el-button>
-
-            <el-button
-                type="warning"
-                plain
-                class="load-btn"
-                :loading="isLoadingAll"
-                :disabled="!hasMore || isLoadingMore"
-                @click="handleLoadAll"
-            >
-                {{ t('keyDetailPanels.common.loadAll') }}
-            </el-button>
-        </div>
-
+        <DetailLoadFooter
+            :has-more="hasMore"
+            :loading-more="isLoadingMore"
+            :loading-all="isLoadingAll"
+            @load-all="handleLoadAll"
+            @load-more="handleLoadMore"
+        />
         <el-dialog
             v-model="memberEditorVisible"
             width="620px"
@@ -119,7 +104,7 @@
         >
             <template #header>
                 <!-- 弹窗标题：Set 成员新增和编辑共用表单，使用编辑图标表达成员变更。 -->
-                <DialogTitle :icon="Edit" :title="memberEditorTitle" />
+                <DialogTitle :icon="Edit" :title="memberEditorTitle"/>
             </template>
 
             <el-form label-width="82px" class="member-editor-form" @submit.prevent>
@@ -159,10 +144,10 @@
         >
             <template #header>
                 <!-- 弹窗标题：查看完整 Set 成员内容，使用预览图标提示只读。 -->
-                <DialogTitle :icon="View" :title="t('keyDetailPanels.common.viewMemberTitle')" />
+                <DialogTitle :icon="View" :title="t('keyDetailPanels.common.viewMemberTitle')"/>
             </template>
 
-            <ViewerTextarea :model-value="viewingMember" :height="180" />
+            <ViewerTextarea :model-value="viewingMember" :height="180"/>
 
             <template #footer>
                 <!-- 查看弹窗底部操作区：复制当前完整 Member 内容。 -->
@@ -177,16 +162,17 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
-import { ElAutoResizer as AutoResizer, ElMessage, ElMessageBox, FixedSizeList } from 'element-plus'
-import { Copy as DocumentCopy, Delete, Edit, Plus, PreviewOpen as View, Search } from '@icon-park/vue-next'
+import {computed, reactive, ref, watch} from 'vue'
+import {ElAutoResizer as AutoResizer, ElMessage, ElMessageBox, FixedSizeList} from 'element-plus'
+import {Copy as DocumentCopy, Delete, Edit, Plus, PreviewOpen as View, Search} from '@icon-park/vue-next'
 import DialogTitle from '../common/DialogTitle.vue'
 import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
-import { useI18n } from '../../i18n/index.js'
+import DetailLoadFooter from './common/DetailLoadFooter.vue'
+import {useI18n} from '../../i18n/index.js'
 
 // 国际化文案读取函数：驱动 Set 表格、弹窗和操作反馈文案。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 组件入参：接收 KeyDetailPanel 加载后的 Set Key 详情数据。
 const props = defineProps({
@@ -328,7 +314,7 @@ const runRedisCommand = async (command, args) => {
     const response = await window.api.redis.executeCommand(props.tabId, command, args)
 
     if (!response.success) {
-        throw new Error(response.error || t('keyDetailPanels.common.messages.commandFail', { value: command }))
+        throw new Error(response.error || t('keyDetailPanels.common.messages.commandFail', {value: command}))
     }
 
     return response.data?.result
@@ -485,7 +471,7 @@ const handleLoadMore = async () => {
     isLoadingMore.value = true
 
     try {
-        const { items, cursor, size } = await fetchSetRange(setCursor.value)
+        const {items, cursor, size} = await fetchSetRange(setCursor.value)
         setCursor.value = cursor
         setTotalSize.value = size
         members.value = mergeSetMembers(members.value, items)
@@ -536,7 +522,7 @@ const handleLoadAll = async () => {
 const handleDeleteMember = async (member) => {
     try {
         await ElMessageBox.confirm(
-            t('keyDetailPanels.set.confirmDelete', { value: member }),
+            t('keyDetailPanels.set.confirmDelete', {value: member}),
             t('keyDetailPanels.set.deleteTitle'),
             {
                 confirmButtonText: t('keyDetail.actions.delete'),
@@ -578,7 +564,7 @@ watch(
         isLoadingMore.value = false
         isLoadingAll.value = false
     },
-    { immediate: true }
+    {immediate: true}
 )
 </script>
 
@@ -627,22 +613,6 @@ watch(
     flex: 1;
 }
 
-/* 底部加载操作区：和其他详情页保持一致，承载 Set 的 cursor 分页操作。 */
-.load-footer {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 0 0 0;
-    box-sizing: border-box;
-}
-
-/* 底部加载按钮：等宽、固定高度，避免按钮 loading 时布局跳动。 */
-.load-btn {
-    flex: 1;
-    height: 30px;
-    margin-left: 0;
-}
 
 /* 表格主体：固定表头 + 虚拟内容区，和 List/Hash/ZSet 详情保持一致。 */
 .set-table {

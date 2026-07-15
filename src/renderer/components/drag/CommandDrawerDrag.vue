@@ -2,8 +2,13 @@
     CommandDrawerDrag.vue
     描述：命令行抽屉高度拖拽手柄。负责把纵向拖拽转换为抽屉高度百分比。
  -->
+<template>
+    <!-- 抽屉顶部拖拽线：只提供高度调整入口。 -->
+    <div class="drag-line" @mousedown="handleHeaderMouseDown"></div>
+</template>
+
 <script setup>
-import { onUnmounted, ref } from 'vue'
+import {onUnmounted, ref} from 'vue'
 
 // 组件入参：接收当前抽屉高度，支持百分比字符串。
 const props = defineProps({
@@ -141,11 +146,6 @@ onUnmounted(() => {
     handleMouseUp()
 })
 </script>
-
-<template>
-    <!-- 抽屉顶部拖拽线：只提供高度调整入口。 -->
-    <div class="drag-line" @mousedown="handleHeaderMouseDown"></div>
-</template>
 
 <style scoped>
 /* 拖拽线：横向铺满抽屉顶部，使用 row-resize 光标提示可上下拖动。 */

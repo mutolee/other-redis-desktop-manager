@@ -2,23 +2,134 @@
     CommandDrawer.vue
     描述：Redis 命令行抽屉。为指定连接创建独立命令会话，支持切库、命令执行、历史记录和结果滚动。
 -->
+<template>
+    <el-drawer
+        :model-value="drawerVisible"
+        :size="drawerHeight"
+        direction="btt"
+        :with-header="true"
+        :close-on-click-modal="false"
+        :close-on-press-escape="false"
+        @close="() => drawerVisible = false"
+        @opened="handleDrawerOpened"
+        append-to-body
+        :class="['command-drawer', { 'is-dragging': isDragging }]"
+    >
+        <template #header>
+            <div class="drawer-header" v-if="isDrawerContentReady && commandConnection">
+                <el-icon style="color: var(--el-color-primary)">
+                    <CodeOne/>
+                </el-icon>
+                <el-text>{{ commandConnection.name }}({{ commandConnection.host }}:{{ commandConnection.port }})</el-text>
+                <el-select
+                    v-model="dbValue"
+                    size="small"
+                    class="drawer-db-select"
+                    popper-class="command-drawer-db-popper"
+                    :disabled="commandConnection.status !== 'connected' || isExecuting"
+                    @change="handleDbValueChange"
+                >
+                    <el-option
+                        v-for="item in dbOptions"
+                        :key="item.value"
+                        :label="item.label"
+                        :value="item.value"
+                    >
+                        <!-- DB 下拉项：左侧显示 DB 名称，右侧显示命令会话当前读取到的 DBSize。 -->
+                        <div class="command-db-option-content">
+                            <span class="command-db-option-label">{{ item.label }}</span>
+                            <span class="command-db-option-size">({{ formatDbSize(item.size) }})</span>
+                        </div>
+                    </el-option>
+                </el-select>
+                <div class="drag">
+                    <CommandDrawerDrag :drawerHeight="drawerHeight"
+                                       @update:drawerHeight="newHeight => {drawerHeight = newHeight; isDragging = true}"
+                                       @update:stopDragging="() => isDragging = false"
+                    />
+                </div>
+            </div>
+        </template>
+        <div class="command-terminal" ref="terminalRef">
+            <el-scrollbar v-if="isDrawerContentReady" ref="scrollbarRef">
+                <div class="terminal-content">
+                    <div
+                        v-for="(line, index) in historyRecord"
+                        :key="index"
+                        class="terminal-line"
+                    >
+                        <span v-if="line.type === 'input'" class="command-prompt">&gt;</span>
+                        <span v-else class="command-output"></span>
+                        <span
+                            class="command-text"
+                            :class="{
+                                out: line.type === 'output',
+                                error: line.type === 'error',
+                                system: line.type === 'system'
+                            }"
+                        >
+                            {{ line.content }}
+                        </span>
+                    </div>
+                    <!-- 命令执行中 / 连接建立中的占位输出：结果未返回前，在终端区域展示轻量的 loading 动画。 -->
+                    <div v-if="isTerminalBusy" class="terminal-line">
+                        <span class="command-output"></span>
+                        <span class="command-loading" :aria-label="isExecuting ? t('commandDrawer.aria.executing') : t('commandDrawer.aria.connecting')">
+                            <span>.</span><span>.</span><span>.</span>
+                        </span>
+                    </div>
+                    <div class="terminal-line">
+                        <span class="command-prompt">&gt;</span>
+                        <div class="input-wrapper">
+                            <span class="input-measure" ref="measureRef">{{ currentInput }}</span>
+                            <input
+                                ref="inputRef"
+                                v-model="currentInput"
+                                @keydown="handleInputKeydown"
+                                @input="updateSuggestions"
+                                class="command-input"
+                                :disabled="isExecuting"
+                                type="text"
+                                autofocus
+                            />
+                            <span v-if="suggestion" class="command-suggestion" :style="suggestionStyle">{{ suggestion }}</span>
+                        </div>
+                    </div>
+                </div>
+            </el-scrollbar>
+
+            <!-- 右下角快捷滚动按钮：用于快速跳到顶部或底部，提高长命令历史下的浏览效率。 -->
+            <div v-if="isDrawerContentReady && hasScrollableContent" class="terminal-scroll-actions">
+                <el-tooltip :content="t('commandDrawer.actions.toTop')" placement="left">
+                    <el-button class="scroll-action-btn" circle @click="scrollToTop">
+                        <el-icon>
+                            <ArrowUpBold/>
+                        </el-icon>
+                    </el-button>
+                </el-tooltip>
+                <el-tooltip :content="t('commandDrawer.actions.toBottom')" placement="left">
+                    <el-button class="scroll-action-btn" circle @click="scrollToBottom">
+                        <el-icon>
+                            <ArrowDownBold/>
+                        </el-icon>
+                    </el-button>
+                </el-tooltip>
+            </div>
+        </div>
+    </el-drawer>
+</template>
+
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { CodeOne, Down as ArrowDownBold, Up as ArrowUpBold } from '@icon-park/vue-next'
-import { ElMessage } from 'element-plus'
-import { storeToRefs } from 'pinia'
-import { matchedExample } from '../../utils/commandExamples.js'
-import {
-    buildDbOptions,
-    buildDbSizeMap,
-    DEFAULT_DATABASE_COUNT,
-    formatDbSize,
-    normalizeDatabaseCount
-} from '../../utils/redisDatabaseOptionUtil.js'
-import { formatRedisCommandResult, parseRedisCommandInput } from '../../utils/redisCommandLineUtil.js'
-import { mergeConnectionRuntimeSettings } from '../../utils/redisConnectionConfigUtil.js'
-import { useUserSettingsStore } from '../../stores/modules/userSettingsStore.js'
-import { useI18n } from '../../i18n/index.js'
+import {computed, nextTick, onMounted, onUnmounted, ref, watch} from 'vue'
+import {CodeOne, Down as ArrowDownBold, Up as ArrowUpBold} from '@icon-park/vue-next'
+import {ElMessage} from 'element-plus'
+import {storeToRefs} from 'pinia'
+import {matchedExample} from '../../utils/commandExamples.js'
+import {buildDbOptions, buildDbSizeMap, DEFAULT_DATABASE_COUNT, formatDbSize, normalizeDatabaseCount} from '../../utils/redisDatabaseOptionUtil.js'
+import {formatRedisCommandResult, parseRedisCommandInput} from '../../utils/redisCommandLineUtil.js'
+import {mergeConnectionRuntimeSettings} from '../../utils/redisConnectionConfigUtil.js'
+import {useUserSettingsStore} from '../../stores/modules/userSettingsStore.js'
+import {useI18n} from '../../i18n/index.js'
 import CommandDrawerDrag from '../drag/CommandDrawerDrag.vue'
 
 // 组件入参：由侧边栏控制抽屉显示，并传入要打开命令面板的连接配置。
@@ -37,7 +148,7 @@ const props = defineProps({
 const emit = defineEmits(['update:visible', 'closed'])
 
 // 国际化文案读取函数：驱动命令抽屉系统提示、错误反馈和操作 tooltip。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 抽屉可见性代理：透传 v-model:visible 给父组件。
 const drawerVisible = computed({
@@ -46,7 +157,7 @@ const drawerVisible = computed({
 })
 
 // 系统连接设置：用于给命令面板独立会话补齐连接超时和命令超时参数。
-const { connectionSettings } = storeToRefs(useUserSettingsStore())
+const {connectionSettings} = storeToRefs(useUserSettingsStore())
 
 // 抽屉布局状态：高度和拖拽状态由 CommandDrawerDrag 更新。
 const drawerHeight = ref('40%')
@@ -202,7 +313,7 @@ const createCommandSession = async () => {
     databaseCount.value = normalizeDatabaseCount(DEFAULT_DATABASE_COUNT, commandConnection.value.db_index ?? 0)
     dbSizeMap.value = {}
     lastSessionStatus.value = 'connecting'
-    appendSystemLine(t('commandDrawer.messages.connecting', { value: commandConnection.value.name }), 'info')
+    appendSystemLine(t('commandDrawer.messages.connecting', {value: commandConnection.value.name}), 'info')
 
     await window.api.redis.connect(sessionId, runtimeConnectionConfig)
 }
@@ -559,7 +670,7 @@ const handleDbValueChange = async (value) => {
         if (response.success) {
             commandConnection.value.db_index = nextDbIndex
             dbValue.value = String(nextDbIndex)
-            appendSystemLine(t('commandDrawer.messages.dbSwitched', { value: nextDbIndex }), 'success')
+            appendSystemLine(t('commandDrawer.messages.dbSwitched', {value: nextDbIndex}), 'success')
             await fetchCommandServerInfo()
         } else {
             dbValue.value = String(oldDbIndex)
@@ -638,119 +749,6 @@ onUnmounted(async () => {
     await cleanupCommandSession()
 })
 </script>
-
-<template>
-    <el-drawer
-        :model-value="drawerVisible"
-        :size="drawerHeight"
-        direction="btt"
-        :with-header="true"
-        :close-on-click-modal="false"
-        :close-on-press-escape="false"
-        @close="() => drawerVisible = false"
-        @opened="handleDrawerOpened"
-        append-to-body
-        :class="['command-drawer', { 'is-dragging': isDragging }]"
-    >
-        <template #header>
-            <div class="drawer-header" v-if="isDrawerContentReady && commandConnection">
-                <el-icon style="color: var(--el-color-primary)">
-                    <CodeOne/>
-                </el-icon>
-                <el-text>{{ commandConnection.name }}({{ commandConnection.host }}:{{ commandConnection.port }})</el-text>
-                <el-select
-                    v-model="dbValue"
-                    size="small"
-                    class="drawer-db-select"
-                    popper-class="command-drawer-db-popper"
-                    :disabled="commandConnection.status !== 'connected' || isExecuting"
-                    @change="handleDbValueChange"
-                >
-                    <el-option
-                        v-for="item in dbOptions"
-                        :key="item.value"
-                        :label="item.label"
-                        :value="item.value"
-                    >
-                        <!-- DB 下拉项：左侧显示 DB 名称，右侧显示命令会话当前读取到的 DBSize。 -->
-                        <div class="command-db-option-content">
-                            <span class="command-db-option-label">{{ item.label }}</span>
-                            <span class="command-db-option-size">({{ formatDbSize(item.size) }})</span>
-                        </div>
-                    </el-option>
-                </el-select>
-                <div class="drag">
-                    <CommandDrawerDrag :drawerHeight="drawerHeight"
-                                       @update:drawerHeight="newHeight => {drawerHeight = newHeight; isDragging = true}"
-                                       @update:stopDragging="() => isDragging = false"
-                    />
-                </div>
-            </div>
-        </template>
-        <div class="command-terminal" ref="terminalRef">
-            <el-scrollbar v-if="isDrawerContentReady" ref="scrollbarRef">
-                <div class="terminal-content">
-                    <div
-                        v-for="(line, index) in historyRecord"
-                        :key="index"
-                        class="terminal-line"
-                    >
-                        <span v-if="line.type === 'input'" class="command-prompt">&gt;</span>
-                        <span v-else class="command-output"></span>
-                        <span
-                            class="command-text"
-                            :class="{
-                                out: line.type === 'output',
-                                error: line.type === 'error',
-                                system: line.type === 'system'
-                            }"
-                        >
-                            {{ line.content }}
-                        </span>
-                    </div>
-                    <!-- 命令执行中 / 连接建立中的占位输出：结果未返回前，在终端区域展示轻量的 loading 动画。 -->
-                    <div v-if="isTerminalBusy" class="terminal-line">
-                        <span class="command-output"></span>
-                        <span class="command-loading" :aria-label="isExecuting ? t('commandDrawer.aria.executing') : t('commandDrawer.aria.connecting')">
-                            <span>.</span><span>.</span><span>.</span>
-                        </span>
-                    </div>
-                    <div class="terminal-line">
-                        <span class="command-prompt">&gt;</span>
-                        <div class="input-wrapper">
-                            <span class="input-measure" ref="measureRef">{{ currentInput }}</span>
-                            <input
-                                ref="inputRef"
-                                v-model="currentInput"
-                                @keydown="handleInputKeydown"
-                                @input="updateSuggestions"
-                                class="command-input"
-                                :disabled="isExecuting"
-                                type="text"
-                                autofocus
-                            />
-                            <span v-if="suggestion" class="command-suggestion" :style="suggestionStyle">{{ suggestion }}</span>
-                        </div>
-                    </div>
-                </div>
-            </el-scrollbar>
-
-            <!-- 右下角快捷滚动按钮：用于快速跳到顶部或底部，提高长命令历史下的浏览效率。 -->
-            <div v-if="isDrawerContentReady && hasScrollableContent" class="terminal-scroll-actions">
-                <el-tooltip :content="t('commandDrawer.actions.toTop')" placement="left">
-                    <el-button class="scroll-action-btn" circle @click="scrollToTop">
-                        <el-icon><ArrowUpBold/></el-icon>
-                    </el-button>
-                </el-tooltip>
-                <el-tooltip :content="t('commandDrawer.actions.toBottom')" placement="left">
-                    <el-button class="scroll-action-btn" circle @click="scrollToBottom">
-                        <el-icon><ArrowDownBold/></el-icon>
-                    </el-button>
-                </el-tooltip>
-            </div>
-        </div>
-    </el-drawer>
-</template>
 
 <style scoped>
 .drawer-header {

@@ -47,11 +47,11 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { useI18n } from '../../i18n/index.js'
+import {computed} from 'vue'
+import {useI18n} from '../../i18n/index.js'
 
 // 国际化文案读取函数：驱动未支持类型的说明、状态和字段标签。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 组件入参：接收 KeyDetailPanel 加载后的统一 keyData 数据，用于展示未知类型的上下文信息。
 const props = defineProps({

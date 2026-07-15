@@ -2,16 +2,162 @@
     RedisInfoDrawer.vue
     描述：Redis 服务器详情抽屉。展示 INFO 摘要、ECharts 图表和完整 INFO 字段表格。
  -->
+<template>
+    <el-drawer
+        :model-value="drawerVisible"
+        size="62%"
+        direction="rtl"
+        :with-header="true"
+        :style="{
+            top: '40px',
+            height: 'calc(100vh - 40px)'
+        }"
+        @opened="handleDrawerOpened"
+        @close="closeDrawer"
+    >
+        <template #header>
+            <!-- Drawer 头部：只展示当前连接名称，操作入口放到内容区。 -->
+            <div class="drawer-header">
+                <div class="drawer-title">
+                    <el-icon class="drawer-header-icon">
+                        <Server/>
+                    </el-icon>
+                    <div class="drawer-title-text">
+                        <el-text size="large">{{ t('redisInfo.title') }}</el-text>
+                    </div>
+                </div>
+            </div>
+        </template>
+        <div class="drawer-content" v-loading="loading">
+            <el-scrollbar>
+                <div class="content-inner">
+                    <!-- 内容操作栏：刷新属于详情内容操作，不放在 Drawer header。 -->
+                    <div class="content-toolbar">
+                        <span class="connection-title">
+                            <LinkThree class="connection-title-icon"/>
+                            <span>{{ connectionName || t('redisInfo.currentConnection') }}</span>
+                        </span>
+                        <el-button :icon="Refresh" :loading="loading" plain @click="fetchRedisInfo">
+                            {{ t('redisInfo.refresh') }}
+                        </el-button>
+                    </div>
+
+                    <!-- 概览卡片：展示 Redis 版本、模式、运行时间和客户端数。 -->
+                    <div class="overview-grid">
+                        <div v-for="item in overviewCards" :key="item.label" class="overview-card">
+                            <el-icon class="overview-icon">
+                                <component :is="item.icon"/>
+                            </el-icon>
+                            <div class="overview-text">
+                                <span class="overview-label">{{ item.label }}</span>
+                                <strong class="overview-value">{{ item.value }}</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 图表区域：CPU、内存和 Keyspace 以可视化方式展示。 -->
+                    <div class="chart-grid">
+                        <div class="chart-panel">
+                            <div class="panel-title">
+                                <Cpu/>
+                                <span>{{ t('redisInfo.sections.cpu') }}</span>
+                            </div>
+                            <VChart v-if="chartReady" class="chart" :option="cpuChartOption" autoresize/>
+                        </div>
+
+                        <div class="chart-panel">
+                            <div class="panel-title">
+                                <DashboardOne/>
+                                <span>{{ t('redisInfo.sections.memory') }}</span>
+                            </div>
+                            <VChart v-if="chartReady" class="chart" :option="memoryChartOption" autoresize/>
+                        </div>
+
+                        <div class="chart-panel">
+                            <div class="panel-title">
+                                <DatabaseSearch/>
+                                <span>{{ t('redisInfo.sections.keyspace') }}</span>
+                            </div>
+                            <VChart v-if="chartReady" class="chart" :option="keyspaceChartOption" autoresize/>
+                        </div>
+                    </div>
+
+                    <!-- 指标详情：将状态、内存、CPU 常用字段分组展示。 -->
+                    <div class="info-section-grid">
+                        <div class="info-section">
+                            <h3>{{ t('redisInfo.sections.status') }}</h3>
+                            <div v-for="item in statusItems" :key="item.label" class="info-item">
+                                <span>{{ item.label }}</span>
+                                <strong>{{ item.value }}</strong>
+                            </div>
+                        </div>
+
+                        <div class="info-section">
+                            <h3>{{ t('redisInfo.sections.memory') }}</h3>
+                            <div v-for="item in memoryItems" :key="item.label" class="info-item">
+                                <span>{{ item.label }}</span>
+                                <strong>{{ item.value }}</strong>
+                            </div>
+                        </div>
+
+                        <div class="info-section">
+                            <h3>{{ t('redisInfo.sections.cpu') }}</h3>
+                            <div v-for="item in cpuItems" :key="item.label" class="info-item">
+                                <span>{{ item.label }}</span>
+                                <strong>{{ item.value }}</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 完整 INFO 表格：保留 Redis INFO ALL 的所有字段，支持本地搜索。 -->
+                    <div class="info-table-panel">
+                        <div class="table-toolbar">
+                            <div>
+                                <h3>{{ t('redisInfo.sections.infoAll') }}</h3>
+                                <span>{{ filteredInfoRows.length }} / {{ infoRows.length }}</span>
+                            </div>
+                            <el-input
+                                v-model="searchText"
+                                class="info-search-input"
+                                clearable
+                                :placeholder="t('redisInfo.table.searchPlaceholder')"
+                            >
+                                <template #prefix>
+                                    <el-icon>
+                                        <Search/>
+                                    </el-icon>
+                                </template>
+                            </el-input>
+                        </div>
+
+                        <el-table
+                            class="info-table"
+                            :data="filteredInfoRows"
+                            height="360"
+                            border
+                            :empty-text="t('redisInfo.table.empty')"
+                        >
+                            <el-table-column prop="section" :label="t('redisInfo.table.section')" width="150" show-overflow-tooltip/>
+                            <el-table-column prop="key" :label="t('redisInfo.table.key')" min-width="220" show-overflow-tooltip/>
+                            <el-table-column prop="value" :label="t('redisInfo.table.value')" min-width="320" show-overflow-tooltip/>
+                        </el-table>
+                    </div>
+                </div>
+            </el-scrollbar>
+        </div>
+    </el-drawer>
+</template>
+
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
-import { use } from 'echarts/core'
-import { BarChart, GaugeChart, PieChart } from 'echarts/charts'
-import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
+import {computed, nextTick, ref, watch} from 'vue'
+import {use} from 'echarts/core'
+import {BarChart, GaugeChart, PieChart} from 'echarts/charts'
+import {GridComponent, LegendComponent, TooltipComponent} from 'echarts/components'
+import {CanvasRenderer} from 'echarts/renderers'
 import VChart from 'vue-echarts'
-import { ElMessage } from 'element-plus'
-import { Cpu, DashboardOne, DatabaseSearch, Info, LinkThree, Refresh, Search, Server } from '@icon-park/vue-next'
-import { useI18n } from '../../i18n/index.js'
+import {ElMessage} from 'element-plus'
+import {Cpu, DashboardOne, DatabaseSearch, Info, LinkThree, Refresh, Search, Server} from '@icon-park/vue-next'
+import {useI18n} from '../../i18n/index.js'
 
 use([BarChart, GaugeChart, PieChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
@@ -35,7 +181,7 @@ const props = defineProps({
 const emit = defineEmits(['update:visible'])
 
 // 国际化文案读取函数：驱动 Redis 详情抽屉、图表和表格文案。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 抽屉可见性代理：透传 Element Plus Drawer 的显示状态。
 const drawerVisible = computed({
@@ -110,50 +256,50 @@ const overviewCards = computed(() => [
 
 // 状态信息：用于状态分区展示 Redis 运行模式、角色、系统和配置摘要。
 const statusItems = computed(() => [
-    { label: t('redisInfo.status.role'), value: getInfoValue('role') || '-' },
-    { label: t('redisInfo.status.processId'), value: getInfoValue('process_id') || '-' },
-    { label: t('redisInfo.status.port'), value: getInfoValue('tcp_port') || '-' },
-    { label: t('redisInfo.status.configFile'), value: getInfoValue('config_file') || '-' },
-    { label: t('redisInfo.status.system'), value: getInfoValue('os') || '-' },
-    { label: t('redisInfo.status.arch'), value: `${getInfoValue('arch_bits') || '-'} bit` },
-    { label: t('redisInfo.status.eventLoop'), value: getInfoValue('eventloop') || '-' },
-    { label: t('redisInfo.status.clusterStatus'), value: getInfoValue('cluster_enabled') === '1' ? t('redisInfo.status.enabled') : t('redisInfo.status.disabled') }
+    {label: t('redisInfo.status.role'), value: getInfoValue('role') || '-'},
+    {label: t('redisInfo.status.processId'), value: getInfoValue('process_id') || '-'},
+    {label: t('redisInfo.status.port'), value: getInfoValue('tcp_port') || '-'},
+    {label: t('redisInfo.status.configFile'), value: getInfoValue('config_file') || '-'},
+    {label: t('redisInfo.status.system'), value: getInfoValue('os') || '-'},
+    {label: t('redisInfo.status.arch'), value: `${getInfoValue('arch_bits') || '-'} bit`},
+    {label: t('redisInfo.status.eventLoop'), value: getInfoValue('eventloop') || '-'},
+    {label: t('redisInfo.status.clusterStatus'), value: getInfoValue('cluster_enabled') === '1' ? t('redisInfo.status.enabled') : t('redisInfo.status.disabled')}
 ])
 
 // 内存信息：用于内存分区展示 Redis 内存占用与碎片率。
 const memoryItems = computed(() => [
-    { label: t('redisInfo.memory.used'), value: getInfoValue('used_memory_human') || formatBytes(getInfoNumber('used_memory')) },
-    { label: t('redisInfo.memory.peak'), value: getInfoValue('used_memory_peak_human') || formatBytes(getInfoNumber('used_memory_peak')) },
-    { label: t('redisInfo.memory.rss'), value: getInfoValue('used_memory_rss_human') || formatBytes(getInfoNumber('used_memory_rss')) },
-    { label: t('redisInfo.memory.max'), value: getInfoNumber('maxmemory') > 0 ? formatBytes(getInfoNumber('maxmemory')) : t('redisInfo.memory.unlimited') },
-    { label: t('redisInfo.memory.fragmentation'), value: getInfoValue('mem_fragmentation_ratio') || '-' },
-    { label: t('redisInfo.memory.policy'), value: getInfoValue('maxmemory_policy') || '-' }
+    {label: t('redisInfo.memory.used'), value: getInfoValue('used_memory_human') || formatBytes(getInfoNumber('used_memory'))},
+    {label: t('redisInfo.memory.peak'), value: getInfoValue('used_memory_peak_human') || formatBytes(getInfoNumber('used_memory_peak'))},
+    {label: t('redisInfo.memory.rss'), value: getInfoValue('used_memory_rss_human') || formatBytes(getInfoNumber('used_memory_rss'))},
+    {label: t('redisInfo.memory.max'), value: getInfoNumber('maxmemory') > 0 ? formatBytes(getInfoNumber('maxmemory')) : t('redisInfo.memory.unlimited')},
+    {label: t('redisInfo.memory.fragmentation'), value: getInfoValue('mem_fragmentation_ratio') || '-'},
+    {label: t('redisInfo.memory.policy'), value: getInfoValue('maxmemory_policy') || '-'}
 ])
 
 // CPU 信息：展示累计 CPU 和本次采样计算出的近似使用率。
 const cpuItems = computed(() => [
-    { label: t('redisInfo.cpu.usage'), value: `${serverInfo.value?.cpuUsage ?? 0}%` },
-    { label: t('redisInfo.cpu.system'), value: formatSeconds(getInfoNumber('used_cpu_sys')) },
-    { label: t('redisInfo.cpu.user'), value: formatSeconds(getInfoNumber('used_cpu_user')) },
-    { label: t('redisInfo.cpu.childSystem'), value: formatSeconds(getInfoNumber('used_cpu_sys_children')) },
-    { label: t('redisInfo.cpu.childUser'), value: formatSeconds(getInfoNumber('used_cpu_user_children')) }
+    {label: t('redisInfo.cpu.usage'), value: `${serverInfo.value?.cpuUsage ?? 0}%`},
+    {label: t('redisInfo.cpu.system'), value: formatSeconds(getInfoNumber('used_cpu_sys'))},
+    {label: t('redisInfo.cpu.user'), value: formatSeconds(getInfoNumber('used_cpu_user'))},
+    {label: t('redisInfo.cpu.childSystem'), value: formatSeconds(getInfoNumber('used_cpu_sys_children'))},
+    {label: t('redisInfo.cpu.childUser'), value: formatSeconds(getInfoNumber('used_cpu_user_children'))}
 ])
 
 // CPU 仪表盘：展示当前采样区间内的 CPU 使用率。
 const cpuChartOption = computed(() => ({
-    tooltip: { formatter: '{a}<br/>{b}: {c}%' },
+    tooltip: {formatter: '{a}<br/>{b}: {c}%'},
     series: [
         {
             name: 'CPU',
             type: 'gauge',
             min: 0,
             max: 100,
-            progress: { show: true, width: 10 },
-            axisLine: { lineStyle: { width: 10 } },
-            axisTick: { show: false },
-            splitLine: { length: 8 },
-            detail: { formatter: '{value}%', fontSize: 16 },
-            data: [{ value: Number(serverInfo.value?.cpuUsage || 0), name: t('redisInfo.cpu.usageRate') }]
+            progress: {show: true, width: 10},
+            axisLine: {lineStyle: {width: 10}},
+            axisTick: {show: false},
+            splitLine: {length: 8},
+            detail: {formatter: '{value}%', fontSize: 16},
+            data: [{value: Number(serverInfo.value?.cpuUsage || 0), name: t('redisInfo.cpu.usageRate')}]
         }
     ]
 }))
@@ -166,13 +312,13 @@ const memoryChartOption = computed(() => {
     const peakMemory = getInfoNumber('used_memory_peak')
     const data = maxMemory > 0
         ? [
-            { name: t('redisInfo.memory.used'), value: usedMemory },
-            { name: t('redisInfo.memory.free'), value: Math.max(maxMemory - usedMemory, 0) }
+            {name: t('redisInfo.memory.used'), value: usedMemory},
+            {name: t('redisInfo.memory.free'), value: Math.max(maxMemory - usedMemory, 0)}
         ]
         : [
-            { name: t('redisInfo.memory.used'), value: usedMemory },
-            { name: 'RSS', value: rssMemory },
-            { name: t('redisInfo.memory.peak'), value: peakMemory }
+            {name: t('redisInfo.memory.used'), value: usedMemory},
+            {name: 'RSS', value: rssMemory},
+            {name: t('redisInfo.memory.peak'), value: peakMemory}
         ]
 
     return {
@@ -180,14 +326,14 @@ const memoryChartOption = computed(() => {
             trigger: 'item',
             formatter: (params) => `${params.name}: ${formatBytes(params.value)}`
         },
-        legend: { bottom: 0, itemWidth: 10, itemHeight: 10 },
+        legend: {bottom: 0, itemWidth: 10, itemHeight: 10},
         series: [
             {
                 type: 'pie',
                 radius: ['46%', '70%'],
                 center: ['50%', '42%'],
                 avoidLabelOverlap: true,
-                label: { formatter: '{b}' },
+                label: {formatter: '{b}'},
                 data
             }
         ]
@@ -196,13 +342,13 @@ const memoryChartOption = computed(() => {
 
 // Keyspace 图表：展示各 DB 的 Key 数量，没有 Key 时展示空数组。
 const keyspaceChartOption = computed(() => ({
-    tooltip: { trigger: 'axis' },
-    grid: { left: 36, right: 16, top: 20, bottom: 28 },
+    tooltip: {trigger: 'axis'},
+    grid: {left: 36, right: 16, top: 20, bottom: 28},
     xAxis: {
         type: 'category',
         data: keyspaceRows.value.map((row) => row.db)
     },
-    yAxis: { type: 'value' },
+    yAxis: {type: 'value'},
     series: [
         {
             type: 'bar',
@@ -330,151 +476,6 @@ watch(
     }
 )
 </script>
-
-<template>
-    <el-drawer
-        :model-value="drawerVisible"
-        size="62%"
-        direction="rtl"
-        :with-header="true"
-        :style="{
-            top: '40px',
-            height: 'calc(100vh - 40px)'
-        }"
-        @opened="handleDrawerOpened"
-        @close="closeDrawer"
-    >
-        <template #header>
-            <!-- Drawer 头部：只展示当前连接名称，操作入口放到内容区。 -->
-            <div class="drawer-header">
-                <div class="drawer-title">
-                    <el-icon class="drawer-header-icon">
-                        <Server />
-                    </el-icon>
-                    <div class="drawer-title-text">
-                        <el-text size="large">{{ t('redisInfo.title') }}</el-text>
-                    </div>
-                </div>
-            </div>
-        </template>
-
-        <div class="drawer-content" v-loading="loading">
-            <el-scrollbar>
-                <div class="content-inner">
-                    <!-- 内容操作栏：刷新属于详情内容操作，不放在 Drawer header。 -->
-                    <div class="content-toolbar">
-                        <span class="connection-title">
-                            <LinkThree class="connection-title-icon" />
-                            <span>{{ connectionName || t('redisInfo.currentConnection') }}</span>
-                        </span>
-                        <el-button :icon="Refresh" :loading="loading" plain @click="fetchRedisInfo">
-                            {{ t('redisInfo.refresh') }}
-                        </el-button>
-                    </div>
-
-                    <!-- 概览卡片：展示 Redis 版本、模式、运行时间和客户端数。 -->
-                    <div class="overview-grid">
-                        <div v-for="item in overviewCards" :key="item.label" class="overview-card">
-                            <el-icon class="overview-icon">
-                                <component :is="item.icon" />
-                            </el-icon>
-                            <div class="overview-text">
-                                <span class="overview-label">{{ item.label }}</span>
-                                <strong class="overview-value">{{ item.value }}</strong>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 图表区域：CPU、内存和 Keyspace 以可视化方式展示。 -->
-                    <div class="chart-grid">
-                        <div class="chart-panel">
-                            <div class="panel-title">
-                                <Cpu />
-                                <span>{{ t('redisInfo.sections.cpu') }}</span>
-                            </div>
-                            <VChart v-if="chartReady" class="chart" :option="cpuChartOption" autoresize />
-                        </div>
-
-                        <div class="chart-panel">
-                            <div class="panel-title">
-                                <DashboardOne />
-                                <span>{{ t('redisInfo.sections.memory') }}</span>
-                            </div>
-                            <VChart v-if="chartReady" class="chart" :option="memoryChartOption" autoresize />
-                        </div>
-
-                        <div class="chart-panel">
-                            <div class="panel-title">
-                                <DatabaseSearch />
-                                <span>{{ t('redisInfo.sections.keyspace') }}</span>
-                            </div>
-                            <VChart v-if="chartReady" class="chart" :option="keyspaceChartOption" autoresize />
-                        </div>
-                    </div>
-
-                    <!-- 指标详情：将状态、内存、CPU 常用字段分组展示。 -->
-                    <div class="info-section-grid">
-                        <div class="info-section">
-                            <h3>{{ t('redisInfo.sections.status') }}</h3>
-                            <div v-for="item in statusItems" :key="item.label" class="info-item">
-                                <span>{{ item.label }}</span>
-                                <strong>{{ item.value }}</strong>
-                            </div>
-                        </div>
-
-                        <div class="info-section">
-                            <h3>{{ t('redisInfo.sections.memory') }}</h3>
-                            <div v-for="item in memoryItems" :key="item.label" class="info-item">
-                                <span>{{ item.label }}</span>
-                                <strong>{{ item.value }}</strong>
-                            </div>
-                        </div>
-
-                        <div class="info-section">
-                            <h3>{{ t('redisInfo.sections.cpu') }}</h3>
-                            <div v-for="item in cpuItems" :key="item.label" class="info-item">
-                                <span>{{ item.label }}</span>
-                                <strong>{{ item.value }}</strong>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 完整 INFO 表格：保留 Redis INFO ALL 的所有字段，支持本地搜索。 -->
-                    <div class="info-table-panel">
-                        <div class="table-toolbar">
-                            <div>
-                                <h3>{{ t('redisInfo.sections.infoAll') }}</h3>
-                                <span>{{ filteredInfoRows.length }} / {{ infoRows.length }}</span>
-                            </div>
-                            <el-input
-                                v-model="searchText"
-                                class="info-search-input"
-                                clearable
-                                :placeholder="t('redisInfo.table.searchPlaceholder')"
-                            >
-                                <template #prefix>
-                                    <el-icon><Search /></el-icon>
-                                </template>
-                            </el-input>
-                        </div>
-
-                        <el-table
-                            class="info-table"
-                            :data="filteredInfoRows"
-                            height="360"
-                            border
-                            :empty-text="t('redisInfo.table.empty')"
-                        >
-                            <el-table-column prop="section" :label="t('redisInfo.table.section')" width="150" show-overflow-tooltip />
-                            <el-table-column prop="key" :label="t('redisInfo.table.key')" min-width="220" show-overflow-tooltip />
-                            <el-table-column prop="value" :label="t('redisInfo.table.value')" min-width="320" show-overflow-tooltip />
-                        </el-table>
-                    </div>
-                </div>
-            </el-scrollbar>
-        </div>
-    </el-drawer>
-</template>
 
 <style scoped>
 /* Drawer 头部：左侧标题信息，右侧刷新按钮。 */

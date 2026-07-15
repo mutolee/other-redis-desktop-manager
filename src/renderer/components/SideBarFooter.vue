@@ -2,17 +2,27 @@
     SideBarFooter.vue
     描述：侧边栏底部入口。展示开源地址按钮，并适配侧边栏折叠状态。
  -->
+<template>
+    <!-- 开源入口：展开时展示图标和文字，折叠时仅保留图标。 -->
+    <div :class="['github-bar', { 'is-collapsed': sideCollapseState }]" @click="openGithub">
+        <el-icon :size="30">
+            <Github/>
+        </el-icon>
+        <span v-if="!sideCollapseState">{{ t('sideBarFooter.openSource') }}</span>
+    </div>
+</template>
+
 <script setup>
-import { Github } from '@icon-park/vue-next'
-import { storeToRefs } from 'pinia'
-import { useI18n } from '../i18n/index.js'
-import { useUserSettingsStore } from '../stores/modules/userSettingsStore.js'
+import {Github} from '@icon-park/vue-next'
+import {storeToRefs} from 'pinia'
+import {useI18n} from '../i18n/index.js'
+import {useUserSettingsStore} from '../stores/modules/userSettingsStore.js'
 
 // 国际化文案读取函数：驱动侧边栏底部开源入口文案。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 用户设置 store：读取侧边栏折叠状态，控制底部入口是否展示文字。
-const { sideCollapseState } = storeToRefs(useUserSettingsStore())
+const {sideCollapseState} = storeToRefs(useUserSettingsStore())
 
 // 开源仓库地址：侧边栏底部 Open Source 入口点击后跳转到该地址。
 const OPEN_SOURCE_REPOSITORY_URL = 'https://github.com/mutolee/other-redis-desktop-manager'
@@ -25,16 +35,6 @@ const openGithub = async () => {
     await window.api.mainWin.openExternal(OPEN_SOURCE_REPOSITORY_URL)
 }
 </script>
-
-<template>
-    <!-- 开源入口：展开时展示图标和文字，折叠时仅保留图标。 -->
-    <div :class="['github-bar', { 'is-collapsed': sideCollapseState }]" @click="openGithub">
-        <el-icon :size="30">
-            <Github/>
-        </el-icon>
-        <span v-if="!sideCollapseState">{{ t('sideBarFooter.openSource') }}</span>
-    </div>
-</template>
 
 <style scoped>
 /* 底部开源入口：固定在侧边栏底部，使用 titlebar 背景融入整体菜单。 */

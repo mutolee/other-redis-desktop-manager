@@ -29,7 +29,7 @@
  * 左右分栏拖拽组件。
  * 通过 v-model:left-width 向父组件同步左侧宽度百分比。
  */
-import { computed, onUnmounted, ref } from 'vue'
+import {computed, onUnmounted, ref} from 'vue'
 
 // 组件入参：控制左侧宽度、最小/最大百分比范围。
 const props = defineProps({

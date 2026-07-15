@@ -3,14 +3,14 @@
  * 负责单实例控制、应用初始化、系统事件注册和退出前资源清理。
  */
 import electron from 'electron'
-import { registerAllIpcHandlers } from './ipcHandlers/ipcMain.js'
-import { redisConnectionManager } from './managers/RedisConnectionManager.js'
-import { destroyTrayManager } from './managers/TrayManager.js'
-import { createLogger } from './utils/logger.js'
-import { getMainWindow } from './windows/mainWindow.js'
-import { createSplashWindow } from './windows/splashWindow.js'
+import {registerAllIpcHandlers} from './ipcHandlers/ipcMain.js'
+import {redisConnectionManager} from './managers/RedisConnectionManager.js'
+import {destroyTrayManager} from './managers/TrayManager.js'
+import {createLogger} from './utils/logger.js'
+import {getMainWindow} from './windows/mainWindow.js'
+import {createSplashWindow} from './windows/splashWindow.js'
 
-const { app, globalShortcut } = electron
+const {app, globalShortcut} = electron
 const log = createLogger('main')
 
 // Redis 连接退出清理状态：避免 before-quit 被多次触发时重复关闭连接。

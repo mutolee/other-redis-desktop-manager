@@ -12,11 +12,11 @@
 </template>
 
 <script setup>
-import { watch } from 'vue'
-import { useI18n } from './i18n/index.js'
+import {watch} from 'vue'
+import {useI18n} from './i18n/index.js'
 
 // 国际化配置：Element Plus locale 和 html lang 都由用户语言设置驱动。
-const { language, elementLocale } = useI18n()
+const {language, elementLocale} = useI18n()
 
 watch(
     language,
@@ -27,6 +27,6 @@ watch(
         // 同步 main 进程语言，驱动托盘菜单等 Electron 原生 UI 文案。
         window.api?.appInfo?.setLanguage?.(nextLanguage)
     },
-    { immediate: true }
+    {immediate: true}
 )
 </script>

@@ -1,15 +1,10 @@
-import { tMain } from '../utils/mainI18n.js'
+import {tMain} from '../utils/mainI18n.js'
 
 /**
  * Redis ioredis 连接选项工厂。
  * 集中处理单机、哨兵、集群等连接配置到 ioredis options 的转换。
  */
-
-import {
-    DEFAULT_CONNECT_TIMEOUT_MS,
-    REDIS_KEEP_ALIVE_MS,
-    normalizeTimeout
-} from './redisDataUtils.js'
+import {DEFAULT_CONNECT_TIMEOUT_MS, normalizeTimeout, REDIS_KEEP_ALIVE_MS} from './redisDataUtils.js'
 
 /**
  * 读取连接配置中的连接超时。
@@ -29,7 +24,7 @@ export const buildRedisOptions = (config = {}) => {
     // 哨兵模式：通过哨兵节点发现主节点地址。
     if (config.use_sentinel) {
         return {
-            sentinels: [{ host: config.host, port: config.port }],
+            sentinels: [{host: config.host, port: config.port}],
             name: config.sentinel_master_name,
             password: config.sentinel_master_pass || config.password || undefined,
             db: config.db_index || 0,

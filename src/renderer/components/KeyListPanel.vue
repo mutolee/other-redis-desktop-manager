@@ -5,140 +5,95 @@
 <template>
     <!-- Key 列表面板：承载模式切换、搜索、扫描结果列表和分页加载操作 -->
     <div class="key-list-panel">
-        <!-- 顶部工具栏：负责切换树形/列表视图、搜索 Key 和手动刷新 -->
-        <div class="toolbar">
-            <el-tooltip :content="viewModeTooltip" placement="bottom">
-                <el-button
-                    class="view-mode-btn"
-                    :type="viewMode === 'tree' ? '' : 'primary'"
-                    @click="toggleViewMode"
-                    :icon="viewModeIcon"
-                />
-            </el-tooltip>
-
-            <el-input
-                v-model="searchText"
-                :placeholder="t('keyList.searchPlaceholder')"
-                clearable
-                size="default"
-                class="search-input"
-                @keyup.enter="handleSubmitSearch"
-            >
-                <template #suffix>
-                    <!-- 搜索模式切换：勾选后按完整 Key 精准匹配，不勾选时按包含关系模糊匹配。 -->
-                    <el-tooltip :content="t('keyList.exactSearch')" placement="bottom" :show-after="200">
-                        <el-checkbox
-                            v-model="isExactSearch"
-                            class="exact-search-checkbox"
-                        />
-                    </el-tooltip>
-                </template>
-            </el-input>
-
-            <!-- 添加 Key 按钮：放在搜索框后方，作为后续创建流程的入口。 -->
-            <el-tooltip :content="t('keyList.addKey')" placement="bottom">
-                <el-button
-                    class="add-key-btn"
-                    :icon="Plus"
-                    @click="handleAddKey"
-                    type="primary"
-                />
-            </el-tooltip>
-
-            <!-- 刷新按钮：固定停留在工具栏最右侧。 -->
-            <el-button class="refresh-btn" :icon="Refresh" circle :loading="isRefreshing" @click="handleRefreshList" />
-        </div>
+        <KeyListToolbar
+            v-model:search-text="searchText"
+            v-model:is-exact-search="isExactSearch"
+            :view-mode="viewMode"
+            :view-mode-tooltip="viewModeTooltip"
+            :view-mode-icon="viewModeIcon"
+            :is-refreshing="isRefreshing"
+            :export-selection-mode="exportSelectionMode"
+            :batch-delete-selection-mode="batchDeleteSelectionMode"
+            @toggle-view-mode="toggleViewMode"
+            @submit-search="handleSubmitSearch"
+            @add-key="handleAddKey"
+            @refresh="handleRefreshList"
+            @operation-command="handleOperationCommand"
+        />
 
         <!-- 列表主体区：根据加载结果展示空态或 Key 列表 -->
-        <div class="keys-body">
-            <div v-if="isEmptyStateVisible" class="empty-state">
-                <el-empty :description="emptyDescription" />
-            </div>
-
-            <!-- 虚拟列表区域：仅渲染可视区内的行，降低大数据量下的 DOM 压力 -->
-            <AutoResizer v-else class="keys-auto-resizer">
-                <template #default="{ height, width }">
-                    <FixedSizeList
-                        class-name="keys-virtual-list"
-                        :data="visibleRows"
-                        :total="visibleRows.length"
-                        :height="height"
-                        :width="width"
-                        :item-size="ROW_HEIGHT"
-                        :cache="8"
-                    >
-                        <template #default="{ data, index, style }">
-                            <!-- Key 行：目录节点支持展开，普通 Key 支持选中 -->
-                            <div
-                                v-if="data[index]"
-                                :key="data[index].nodeId || data[index].key"
-                                class="key-row"
-                                :class="{
-                                    'is-active': !data[index].isDirectory && activeKey === data[index].key,
-                                    'is-directory': data[index].isDirectory,
-                                    'is-ancestor-active': isAncestorOfActiveKey(data[index])
-                                }"
-                                :style="getRowStyle(data[index], style)"
-                                @click="handleRowClick(data[index])"
-                            >
-                                <!-- 树形目录展开按钮 -->
-                                <span
-                                    v-if="data[index].isDirectory"
-                                    class="expand-icon"
-                                    @click.stop="toggleExpand(data[index])"
-                                >
-                                    <el-icon>
-                                        <ArrowRight v-if="!isExpanded(data[index].nodeId || data[index].key)" />
-                                        <ArrowDown v-else />
-                                    </el-icon>
-                                </span>
-
-                                <!-- Key 类型标签：仅真实 Key 展示数据类型，目录节点保留占位宽度。 -->
-                                <el-tag
-                                    v-if="!data[index].isDirectory"
-                                    :type="getTagType(data[index].type)"
-                                    size="small"
-                                    class="key-type-tag"
-                                >
-                                    {{ String(data[index].type || '').toUpperCase() }}
-                                </el-tag>
-
-                                <!-- Key 名称：树形模式显示当前层级名称，列表模式显示完整 Key -->
-                                <span class="key-name">{{ data[index].displayKey }}</span>
-
-                                <!-- 父节点 Key 数量：仅树形目录展示当前子树下包含的真实 Key 总数。 -->
-                                <span v-if="data[index].isDirectory" class="key-count">
-                                    ({{ data[index].keyCount ?? 0 }})
-                                </span>
-                            </div>
-                        </template>
-                    </FixedSizeList>
-                </template>
-            </AutoResizer>
+        <!-- 搜索结果提示：仅在提交搜索后展示，明确当前列表处于过滤结果态。 -->
+        <div v-if="isSearchResultMode" class="search-result-tip">
+            {{ t('keyList.searchResultLabel') }}
         </div>
+
+        <KeySelectionBar
+            v-if="exportSelectionMode"
+            mode="export"
+            :selected-count="selectedExportCount"
+            :loading="isExportingKeys"
+            @select-all="handleSelectAllExportKeys"
+            @clear="handleClearExportSelection"
+            @close="exitExportSelectionMode"
+            @submit="handleExportSelectedKeys"
+        />
+
+        <KeySelectionBar
+            v-if="batchDeleteSelectionMode"
+            mode="batch-delete"
+            :selected-count="selectedBatchDeleteCount"
+            :loading="isBatchDeletingKeys"
+            @select-all="handleSelectAllBatchDeleteKeys"
+            @clear="handleClearBatchDeleteSelection"
+            @close="exitBatchDeleteSelectionMode"
+            @submit="handleBatchDeleteSelectedKeys"
+        />
+
+        <KeyListBody
+            :loading="isKeyListOverlayLoading"
+            :loading-text="keyListBusyText"
+            :empty-visible="isEmptyStateVisible"
+            :empty-description="emptyDescription"
+            :rows="visibleRows"
+            :row-height="ROW_HEIGHT"
+            :active-key="activeKey"
+            :selection-mode="isSelectionMode"
+            :is-ancestor-of-active-key="isAncestorOfActiveKey"
+            :is-context-menu-active="isContextMenuActive"
+            :get-row-style="getRowStyle"
+            :is-row-selection-checked="isRowSelectionChecked"
+            :is-row-selection-indeterminate="isRowSelectionIndeterminate"
+            :is-row-selection-disabled="isRowSelectionDisabled"
+            :is-expanded="isExpanded"
+            :get-tag-type="getTagType"
+            @row-click="handleRowClick"
+            @row-context-menu="handleRowContextMenu"
+            @toggle-selection="toggleSelectionRow"
+            @toggle-expand="toggleExpand"
+        />
 
         <!-- 底部分页操作：支持继续扫描或一次性拉取全部 -->
         <div class="load-footer">
-            <el-button
-                type="primary"
-                plain
-                class="load-btn"
-                :loading="isLoadingMore"
-                :disabled="!hasMore || isLoadingAll || isInitialLoading"
-                @click="loadKeys(false)"
-            >
-                {{ t('keyList.loadMore') }}
-            </el-button>
-
             <el-button
                 type="warning"
                 plain
                 class="load-btn"
                 :loading="isLoadingAll"
-                :disabled="!hasMore || isLoadingMore || isInitialLoading"
+                :disabled="!hasMore || isLoadingMore || isInitialLoading || isKeyListBusy"
                 @click="loadAll"
             >
                 {{ t('keyList.loadAll') }}
+            </el-button>
+
+            <el-button
+                type="primary"
+                plain
+                class="load-btn"
+                :loading="isLoadingMore"
+                :disabled="!hasMore || isLoadingAll || isInitialLoading || isKeyListBusy"
+                @click="loadKeys(false)"
+            >
+                {{ t('keyList.loadMore') }}
             </el-button>
         </div>
 
@@ -148,6 +103,40 @@
             :tab-id="tabId"
             @created="handleKeyCreated"
         />
+
+        <!-- Key 行右键菜单：根据目录节点或真实 Key 节点展示不同操作入口。 -->
+        <KeyListContextMenu
+            v-model:visible="contextMenuVisible"
+            :row="contextMenuRow"
+            :virtual-ref="contextMenuVirtualRef"
+            @command="handleContextMenuCommand"
+        />
+
+        <!-- 内存分析抽屉：从顶部操作菜单打开，展示当前 DB 的 Key 内存占用排行。 -->
+        <MemoryAnalysisDrawer
+            v-model:visible="memoryAnalysisDrawerVisible"
+            :connection-id="tabId"
+            :connection-name="currentConnectionName"
+            :scope-label="memoryAnalysisScopeLabel"
+            :match-pattern="memoryAnalysisMatchPattern"
+        />
+
+        <!-- 慢查询抽屉：展示当前 Redis 实例级 SLOWLOG，不区分具体 DB。 -->
+        <SlowQueryDrawer
+            v-model:visible="slowQueryDrawerVisible"
+            :connection-id="tabId"
+            :connection-name="currentConnectionName"
+        />
+
+        <!-- 删除目录 Key 抽屉：右键目录打开，先预览目录下 Key，再二次确认删除。 -->
+        <DeleteDirectoryKeysDrawer
+            v-model:visible="deleteDirectoryDrawerVisible"
+            :connection-id="tabId"
+            :connection-name="currentConnectionName"
+            :directory-key="deleteDirectoryTarget?.key || ''"
+            :match-pattern="deleteDirectoryMatchPattern"
+            @deleted="handleDirectoryKeysDeleted"
+        />
     </div>
 </template>
 
@@ -156,17 +145,31 @@
  * Key 列表面板组件。
  * 负责加载当前连接与当前 db 下的 Key 列表，并支持树形/列表视图切换、搜索、分页扫描与选择 Key。
  */
-import { computed, ref, watch } from 'vue'
-import { ElAutoResizer as AutoResizer, ElMessage, FixedSizeList } from 'element-plus'
-import { Down as ArrowDown, ListTwo, Plus, Refresh, Right as ArrowRight, TreeList } from '@icon-park/vue-next'
-import { storeToRefs } from 'pinia'
-import { useI18n } from '../i18n/index.js'
-import { buildKeyTreeMap, flattenExpandedTreeNodes, isAncestorDirectoryKey } from '../utils/keyListTreeUtil.js'
-import { useUserSettingsStore } from '../stores/modules/userSettingsStore.js'
+import {computed, ref, shallowRef, watch} from 'vue'
+import {ElMessage, ElMessageBox} from 'element-plus'
+import {ListTwo, TreeList} from '@icon-park/vue-next'
+import {storeToRefs} from 'pinia'
+import {useI18n} from '../i18n/index.js'
+import {buildKeyTreeMap, flattenExpandedTreeNodes, isAncestorDirectoryKey, normalizeKeySeparator} from '../utils/keyListTreeUtil.js'
+import {getSelectedKeyRows} from '../utils/keyExportSelectionUtil.js'
+import {saveKeyExportData} from '../utils/keyExportUtil.js'
+import {readKeyImportFile} from '../utils/keyImportUtil.js'
+import {eventBus} from '../utils/eventBus.js'
+import {useKeyListDrawers} from '../composables/useKeyListDrawers.js'
+import {useKeyListSelection} from '../composables/useKeyListSelection.js'
+import {useConnectionConfigsStore} from '../stores/modules/connectionConfigsStore.js'
+import {useUserSettingsStore} from '../stores/modules/userSettingsStore.js'
+import MemoryAnalysisDrawer from './drawer/MemoryAnalysisDrawer.vue'
+import SlowQueryDrawer from './drawer/SlowQueryDrawer.vue'
+import DeleteDirectoryKeysDrawer from './drawer/DeleteDirectoryKeysDrawer.vue'
 import AddKeyDialog from './dialog/AddKeyDialog.vue'
+import KeyListContextMenu from './dialog/KeyListContextMenu.vue'
+import KeyListBody from './keyList/KeyListBody.vue'
+import KeyListToolbar from './keyList/KeyListToolbar.vue'
+import KeySelectionBar from './keyList/KeySelectionBar.vue'
 
 // 国际化文案读取函数：驱动 Key 列表工具栏、空态和错误反馈文案。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 组件入参：tabId 用于标识当前连接页签，activeKey 用于高亮当前选中项，dbIndex 用于切库后刷新列表。
 const props = defineProps({
@@ -189,14 +192,21 @@ const props = defineProps({
     deletedKeyPatch: {
         type: Object,
         default: null
+    },
+    resetVersion: {
+        type: Number,
+        default: 0
     }
 })
 
 // 组件事件：当用户点击具体 Key 时，向父组件同步当前选中项。
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'close-all-opened-keys'])
 
 // 从系统设置 store 中提取连接设置，用于读取用户配置的 Key 扫描数量。
-const { connectionSettings } = storeToRefs(useUserSettingsStore())
+const {connectionSettings} = storeToRefs(useUserSettingsStore())
+
+// 从连接配置 store 中提取已打开连接列表，用于顶部菜单关闭当前连接页签。
+const {openedConnectionConfigs} = storeToRefs(useConnectionConfigsStore())
 
 // 已扫描到的原始 Key 列表，作为树形和列表模式的共同数据源。
 const allScannedKeys = ref([])
@@ -216,6 +226,24 @@ const isLoadingMore = ref(false)
 // 点击“加载全部”时的批量扫描状态。
 const isLoadingAll = ref(false)
 
+// 删除所有 Key 的危险操作状态，用于避免重复触发 FLUSHDB。
+const isDeletingAllKeys = ref(false)
+
+// 右键删除单个 Key 的状态：避免同一个危险操作被重复触发。
+const isDeletingContextKey = ref(false)
+
+// 当前是否正在导出 Key 数据：导出期间禁用重复提交并展示按钮 loading。
+const isExportingKeys = ref(false)
+
+// 当前是否正在导入 Key 数据：避免重复选择文件或重复提交导入。
+const isImportingKeys = ref(false)
+
+// 当前是否正在批量删除 Key：删除期间遮罩列表，避免选择状态和 Redis 写操作同时变化。
+const isBatchDeletingKeys = ref(false)
+
+// 当前是否由回车搜索触发列表加载：用于在保留旧结果时给列表主体显示轻量遮罩。
+const isSearchingKeys = ref(false)
+
 // 搜索输入内容：仅用于输入框展示，不会随着输入变化立即触发搜索。
 const searchText = ref('')
 
@@ -233,6 +261,15 @@ const expandedKeys = ref(new Set())
 
 // 新增 Key 弹窗显示状态：由顶部加号按钮打开。
 const addKeyDialogVisible = ref(false)
+
+// 行右键菜单显示状态：由 Key 行 contextmenu 事件打开。
+const contextMenuVisible = ref(false)
+
+// 当前右键选中的 Key 行：用于区分目录节点和真实 Key 节点。
+const contextMenuRow = ref(null)
+
+// 行右键菜单虚拟触发位置：让菜单定位到鼠标右键点击处。
+const contextMenuVirtualRef = shallowRef(null)
 
 // Key 类型到标签主题色的映射，用于保持不同数据结构的视觉区分。
 const typeTagType = {
@@ -261,6 +298,75 @@ const viewModeIcon = computed(() => viewMode.value === 'tree' ? TreeList : ListT
 // 当前是否处于服务端搜索结果模式：只要生效模式不是全量扫描，就说明列表展示的是某次搜索结果。
 const isSearchResultMode = computed(() => activeSearchPattern.value !== '*')
 
+// 当前打开连接配置：树形分隔符、抽屉标题和关闭连接操作都依赖同一份连接上下文。
+const currentConnectionConfig = computed(() =>
+    openedConnectionConfigs.value.find(
+        (item) => String(item.id) === String(props.tabId)
+    )
+)
+
+// 当前连接名称：用于内存分析抽屉顶部展示，帮助用户确认正在分析的连接。
+const currentConnectionName = computed(() => {
+    if (!currentConnectionConfig.value) {
+        return ''
+    }
+
+    return `${currentConnectionConfig.value.name || ''} (${currentConnectionConfig.value.host || '-'}:${currentConnectionConfig.value.port || '-'})`
+})
+
+// 当前 Key 层级分隔符：优先使用连接配置 key_split，无效时回退为冒号。
+const currentKeySeparator = computed(() => normalizeKeySeparator(currentConnectionConfig.value?.key_split))
+
+// Key 列表选择状态：导出和批量删除共用目录半选、全选、清空和模式切换逻辑。
+const {
+    exportSelectionMode,
+    selectedExportKeys,
+    batchDeleteSelectionMode,
+    selectedBatchDeleteKeys,
+    selectedExportCount,
+    selectedBatchDeleteCount,
+    isSelectionMode,
+    isRowSelectionChecked,
+    isRowSelectionIndeterminate,
+    isRowSelectionDisabled,
+    toggleSelectionRow,
+    enterExportSelectionMode,
+    enterBatchDeleteSelectionMode,
+    handleSelectAllExportKeys,
+    handleSelectAllBatchDeleteKeys,
+    handleClearExportSelection,
+    handleClearBatchDeleteSelection,
+    exitExportSelectionMode,
+    exitBatchDeleteSelectionMode,
+    resetSelections,
+    removeSelectedKeys,
+    pruneSelectionsByLoadedKeys
+} = useKeyListSelection({
+    allScannedKeys,
+    currentKeySeparator,
+    connectionId: computed(() => props.tabId),
+    t
+})
+
+// Key 列表 Drawer 状态：内存分析、慢查询和目录删除抽屉统一收拢在组合函数中。
+const {
+    memoryAnalysisDrawerVisible,
+    memoryAnalysisMatchPattern,
+    memoryAnalysisScopeLabel,
+    slowQueryDrawerVisible,
+    deleteDirectoryDrawerVisible,
+    deleteDirectoryTarget,
+    deleteDirectoryMatchPattern,
+    buildDirectoryMatchPattern,
+    openMemoryAnalysisDrawer,
+    openSlowQueryDrawer,
+    openDeleteDirectoryDrawer
+} = useKeyListDrawers({
+    connectionId: computed(() => props.tabId),
+    currentKeySeparator,
+    t
+})
+
 // 当前 Key 扫描数量：优先使用系统设置中的 scanCount，无效时回退到默认值。
 const currentScanCount = computed(() => {
     const scanCount = Number(connectionSettings.value?.scanCount)
@@ -278,8 +384,31 @@ const isEmptyStateVisible = computed(() => !isInitialLoading.value && visibleRow
 // 刷新按钮加载态：仅在重置加载时展示主刷新状态。
 const isRefreshing = computed(() => isInitialLoading.value)
 
+// 导入、导出、批量删除属于重操作，列表主体需要显示遮罩避免继续误操作。
+const isKeyListBusy = computed(() => isExportingKeys.value || isImportingKeys.value || isBatchDeletingKeys.value)
+
+// 列表遮罩状态：重操作和回车搜索都会覆盖列表主体，但只有重操作会拦截刷新等行为。
+const isKeyListOverlayLoading = computed(() => isKeyListBusy.value || isSearchingKeys.value)
+
+// 列表遮罩文案：区分导入、导出、批量删除和回车搜索，避免用户误判当前动作。
+const keyListBusyText = computed(() => {
+    if (isSearchingKeys.value) {
+        return t('keyList.searchLoading')
+    }
+
+    if (isImportingKeys.value) {
+        return t('keyList.import.loading')
+    }
+
+    if (isBatchDeletingKeys.value) {
+        return t('keyList.batchDeleteSelection.loading')
+    }
+
+    return t('keyList.exportSelection.loading')
+})
+
 // 树形节点映射：作为树形渲染和目录展开判断的基础数据结构。
-const treeMap = computed(() => buildKeyTreeMap(allScannedKeys.value, MAX_TREE_DEPTH))
+const treeMap = computed(() => buildKeyTreeMap(allScannedKeys.value, MAX_TREE_DEPTH, currentKeySeparator.value))
 
 // 树形模式下的完整节点列表，保留父子关系与层级深度。
 const treeNodes = computed(() => Array.from(treeMap.value.values()))
@@ -313,10 +442,10 @@ const baseRows = computed(() => {
     return flattenExpandedTreeNodes(treeNodes.value, isExpanded)
 })
 
-// 树形搜索结果行：搜索结果模式下强制展开整棵结果树，确保祖先路径和命中叶子一并可见。
-const searchResultTreeRows = computed(() => flattenExpandedTreeNodes(treeNodes.value, () => true))
+// 树形搜索结果行：搜索后仍按当前展开状态展示，不主动展开所有目录。
+const searchResultTreeRows = computed(() => flattenExpandedTreeNodes(treeNodes.value, isExpanded))
 
-// 最终渲染行：平时按当前展开状态展示；进入搜索结果模式后，树形视图直接展示完整命中路径。
+// 最终渲染行：树形视图始终尊重目录展开状态，列表视图直接展示扁平结果。
 const visibleRows = computed(() => {
     if (!isSearchResultMode.value) {
         return baseRows.value
@@ -338,6 +467,7 @@ const resetScanState = () => {
     cursor.value = '0'
     hasMore.value = false
     expandedKeys.value = new Set()
+    resetSelections()
 }
 
 /**
@@ -387,7 +517,258 @@ const getRowStyle = (row, virtualStyle) => [
 const getTagType = (keyType) => typeTagType[keyType] || undefined
 
 // 判断当前目录节点是否为已选中 Key 的祖先节点，用于高亮父级路径。
-const isAncestorOfActiveKey = (row) => isAncestorDirectoryKey(row, props.activeKey)
+const isAncestorOfActiveKey = (row) => isAncestorDirectoryKey(row, props.activeKey, currentKeySeparator.value)
+
+/**
+ * 导出当前选中的完整 Key 数据。
+ * 选择集合仍由 renderer 管理，真实 Redis 数据读取集中交给 main 进程处理。
+ */
+const handleExportSelectedKeys = async () => {
+    const selectedKeyRows = getSelectedKeyRows(allScannedKeys.value, selectedExportKeys.value)
+
+    if (selectedKeyRows.length === 0) {
+        ElMessage.warning(t('keyList.exportSelection.messages.empty'))
+        return
+    }
+
+    if (isExportingKeys.value) {
+        return
+    }
+
+    try {
+        isExportingKeys.value = true
+        const response = await window.api.redis.exportKeys(
+            props.tabId,
+            selectedKeyRows.map((item) => item.key)
+        )
+
+        if (!response.success) {
+            ElMessage.error(`${t('keyList.exportSelection.messages.fail')}: ${response.error || t('common.unknownError')}`)
+            return
+        }
+
+        const saveResult = await saveKeyExportData({
+            connectionName: currentConnectionName.value,
+            dbIndex: props.dbIndex,
+            exportResult: response.data
+        }, t)
+
+        if (saveResult === 'cancelled') {
+            return
+        }
+
+        const exportedCount = Number(response.data?.exportedCount ?? response.data?.keys?.length ?? 0)
+        const failedCount = Number(response.data?.failedCount ?? response.data?.failedKeys?.length ?? 0)
+        const truncatedCount = (response.data?.keys ?? []).filter((item) => item.truncated).length
+        if (failedCount > 0 || truncatedCount > 0) {
+            ElMessage.warning(t('keyList.exportSelection.messages.successWithIssues', {
+                value: exportedCount,
+                failed: failedCount,
+                truncated: truncatedCount
+            }))
+        } else {
+            ElMessage.success(t('keyList.exportSelection.messages.success', {value: exportedCount}))
+        }
+        exitExportSelectionMode()
+    } catch (error) {
+        ElMessage.error(`${t('keyList.exportSelection.messages.fail')}: ${error.message || error}`)
+    } finally {
+        isExportingKeys.value = false
+    }
+}
+
+/**
+ * 批量删除当前选中的 Key。
+ * 删除成功后只移除当前已加载列表中的命中项，并重置右侧详情，避免保留已删除 Key 的内容页。
+ */
+const handleBatchDeleteSelectedKeys = async () => {
+    const selectedKeys = [...selectedBatchDeleteKeys.value]
+
+    if (selectedKeys.length === 0) {
+        ElMessage.warning(t('keyList.batchDeleteSelection.messages.empty'))
+        return
+    }
+
+    if (!props.tabId || isBatchDeletingKeys.value) {
+        return
+    }
+
+    try {
+        await ElMessageBox.confirm(
+            t('keyList.batchDeleteSelection.confirm.message', {value: selectedKeys.length}),
+            t('keyList.batchDeleteSelection.confirm.title'),
+            {
+                confirmButtonText: t('keyList.batchDeleteSelection.confirm.confirmButton'),
+                cancelButtonText: t('common.cancel'),
+                type: 'warning',
+                confirmButtonClass: 'el-button--danger'
+            }
+        )
+
+        isBatchDeletingKeys.value = true
+        const response = await window.api.redis.deleteKeys(props.tabId, selectedKeys)
+
+        if (!response.success) {
+            ElMessage.error(`${t('keyList.batchDeleteSelection.messages.fail')}: ${response.error || t('common.unknownError')}`)
+            return
+        }
+
+        const deletedKeySet = new Set(selectedKeys)
+        const deletedCount = Number(response.data?.deletedCount ?? 0)
+
+        allScannedKeys.value = allScannedKeys.value.filter((item) => !deletedKeySet.has(item.key))
+        removeSelectedKeys(deletedKeySet)
+        eventBus.emit('reset-page-info', {tabId: props.tabId})
+        ElMessage.success(t('keyList.batchDeleteSelection.messages.success', {value: deletedCount}))
+        exitBatchDeleteSelectionMode()
+    } catch (error) {
+        if (error !== 'cancel' && error !== 'close') {
+            ElMessage.error(`${t('keyList.batchDeleteSelection.messages.fail')}: ${error.message || error}`)
+        }
+    } finally {
+        isBatchDeletingKeys.value = false
+    }
+}
+
+/**
+ * 导入 Key 导出文件。
+ * 第一版采用同名覆盖策略，导入成功后刷新当前 PageInfo，避免列表与详情展示旧数据。
+ */
+const handleImportKeys = async () => {
+    if (!props.tabId) {
+        ElMessage.warning(t('keyList.messages.connectFirst'))
+        return
+    }
+
+    if (isImportingKeys.value) {
+        return
+    }
+
+    try {
+        const importData = await readKeyImportFile()
+
+        if (!importData) {
+            return
+        }
+
+        if (importData?.format !== 'other-redis-desktop-manager.key-export' || !Array.isArray(importData.keys)) {
+            ElMessage.error(t('keyList.import.messages.invalidFile'))
+            return
+        }
+
+        const truncatedSourceCount = importData.keys.filter((item) => item.truncated).length
+        await ElMessageBox.confirm(
+            t('keyList.import.confirm.message', {
+                value: importData.keys.length,
+                truncated: truncatedSourceCount
+            }),
+            t('keyList.import.confirm.title'),
+            {
+                confirmButtonText: t('keyList.import.confirm.confirmButton'),
+                cancelButtonText: t('common.cancel'),
+                type: 'warning'
+            }
+        )
+
+        isImportingKeys.value = true
+        const response = await window.api.redis.importKeys(props.tabId, importData, {replace: true})
+
+        if (!response.success) {
+            ElMessage.error(`${t('keyList.import.messages.fail')}: ${response.error || t('common.unknownError')}`)
+            return
+        }
+
+        const importedCount = Number(response.data?.importedCount ?? 0)
+        const skippedCount = Number(response.data?.skippedCount ?? 0)
+        const failedCount = Number(response.data?.failedCount ?? 0)
+        ElMessage.success(t('keyList.import.messages.success', {
+            imported: importedCount,
+            skipped: skippedCount,
+            failed: failedCount
+        }))
+        isImportingKeys.value = false
+        eventBus.emit('reset-page-info', {tabId: props.tabId})
+    } catch (error) {
+        if (error !== 'cancel' && error !== 'close') {
+            ElMessage.error(`${t('keyList.import.messages.fail')}: ${error.message || error}`)
+        }
+    } finally {
+        isImportingKeys.value = false
+    }
+}
+
+/**
+ * 判断当前行是否需要展示右键菜单临时背景。
+ * 已打开的 Key 本身已有选中态，右键它时不额外叠加背景色。
+ * @param {Object} row 当前渲染行
+ * @returns {boolean} 是否展示右键菜单背景
+ */
+const isContextMenuActive = (row) => {
+    if (!contextMenuVisible.value || !row || !contextMenuRow.value) {
+        return false
+    }
+
+    if (!row.isDirectory && props.activeKey === row.key) {
+        return false
+    }
+
+    return (row.nodeId || row.key) === (contextMenuRow.value.nodeId || contextMenuRow.value.key)
+}
+
+/**
+ * 目录 Key 删除成功后同步当前已加载列表，并重置右侧详情。
+ * @param {string[]} deletedKeys 已删除 Key 列表
+ */
+const handleDirectoryKeysDeleted = (deletedKeys = []) => {
+    const deletedKeySet = new Set(deletedKeys)
+
+    allScannedKeys.value = allScannedKeys.value.filter((item) => !deletedKeySet.has(item.key))
+    removeSelectedKeys(deletedKeySet)
+    eventBus.emit('reset-page-info', {tabId: props.tabId})
+}
+
+/**
+ * 删除右键选中的单个 Key。
+ * 删除成功后只更新当前已加载列表，并通知右侧关闭对应详情 tab，避免刷新破坏当前分页状态。
+ * @param {Object} row 当前右键选中的 Key 行
+ */
+const handleDeleteContextKey = async (row) => {
+    if (!props.tabId || !row?.key || isDeletingContextKey.value) {
+        return
+    }
+
+    try {
+        await ElMessageBox.confirm(
+            t('keyList.contextMenu.confirm.deleteKeyMessage', {value: row.key}),
+            t('keyList.contextMenu.confirm.deleteKeyTitle'),
+            {
+                confirmButtonText: t('keyList.contextMenu.confirm.deleteKeyConfirm'),
+                cancelButtonText: t('common.cancel'),
+                type: 'warning',
+                confirmButtonClass: 'el-button--danger'
+            }
+        )
+
+        isDeletingContextKey.value = true
+        const response = await window.api.redis.executeCommand(props.tabId, 'DEL', [row.key])
+
+        if (!response.success) {
+            ElMessage.error(`${t('keyList.contextMenu.messages.deleteFail')}: ${response.error || t('common.unknownError')}`)
+            return
+        }
+
+        allScannedKeys.value = allScannedKeys.value.filter((item) => item.key !== row.key)
+        removeSelectedKeys([row.key])
+        eventBus.emit('key-list-key-deleted', {tabId: props.tabId, key: row.key})
+        ElMessage.success(t('keyList.contextMenu.messages.deleteSuccess'))
+    } catch (error) {
+        if (error !== 'cancel' && error !== 'close') {
+            ElMessage.error(`${t('keyList.contextMenu.messages.deleteFail')}: ${error.message || error}`)
+        }
+    } finally {
+        isDeletingContextKey.value = false
+    }
+}
 
 /**
  * 处理列表项点击。
@@ -395,12 +776,121 @@ const isAncestorOfActiveKey = (row) => isAncestorDirectoryKey(row, props.activeK
  * @param {Object} row 当前点击行
  */
 const handleRowClick = (row) => {
+    if (isKeyListBusy.value) {
+        return
+    }
+
+    if (isSelectionMode.value) {
+        toggleSelectionRow(row)
+        return
+    }
+
     if (row.isDirectory) {
         toggleExpand(row)
         return
     }
 
     emit('select', row)
+}
+
+/**
+ * 根据鼠标事件创建右键菜单虚拟触发对象。
+ * @param {MouseEvent} event 鼠标右键事件
+ * @returns {{getBoundingClientRect: Function}} Element Plus Popover 虚拟触发对象
+ */
+const createContextMenuVirtualRef = (event) => {
+    const {clientX, clientY} = event
+
+    return {
+        getBoundingClientRect: () => ({
+            width: 0,
+            height: 0,
+            top: clientY,
+            right: clientX,
+            bottom: clientY,
+            left: clientX,
+            x: clientX,
+            y: clientY
+        })
+    }
+}
+
+/**
+ * 打开 Key 行右键菜单。
+ * @param {MouseEvent} event 鼠标右键事件
+ * @param {Object} row 当前右键点击的行数据
+ */
+const handleRowContextMenu = (event, row) => {
+    if (!row || isSelectionMode.value || isKeyListBusy.value) {
+        return
+    }
+
+    contextMenuRow.value = row
+    contextMenuVirtualRef.value = createContextMenuVirtualRef(event)
+    contextMenuVisible.value = true
+}
+
+/**
+ * 处理 Key 行右键菜单命令。
+ * @param {{command:string,row:Object}} payload 菜单命令和目标行
+ */
+const handleContextMenuCommand = async ({command, row}) => {
+    if (!command || !row) {
+        return
+    }
+
+    if (command === 'copy-key') {
+        try {
+            await navigator.clipboard.writeText(row.key)
+            ElMessage.success(t('keyList.contextMenu.messages.copySuccess'))
+        } catch (error) {
+            ElMessage.error(`${t('keyList.contextMenu.messages.copyFail')}: ${error.message || error}`)
+        }
+        return
+    }
+
+    if (command === 'export-key' && !row.isDirectory) {
+        enterExportSelectionMode(row)
+        return
+    }
+
+    if (command === 'export-directory-keys' && row.isDirectory) {
+        enterExportSelectionMode(row)
+        return
+    }
+
+    if (command === 'batch-delete-keys') {
+        enterBatchDeleteSelectionMode(row)
+        return
+    }
+
+    if (command === 'load-directory-keys' && row.isDirectory) {
+        // 目录过滤复用顶部搜索框：把目录 key 写入输入框，并强制按模糊搜索重新扫描。
+        searchText.value = row.key
+        isExactSearch.value = false
+        handleSubmitSearch()
+        return
+    }
+
+    if (command === 'delete-key' && !row.isDirectory) {
+        await handleDeleteContextKey(row)
+        return
+    }
+
+    if (command === 'directory-memory-analysis' && row.isDirectory) {
+        openMemoryAnalysisDrawer({
+            matchPattern: buildDirectoryMatchPattern(row.key),
+            scopeLabel: row.key
+        })
+        return
+    }
+
+    if (command === 'delete-directory-keys' && row.isDirectory) {
+        openDeleteDirectoryDrawer(row)
+        return
+    }
+
+    ElMessage.info(t('keyList.contextMenu.messages.pending'))
 }
 
 /**
@@ -421,17 +911,18 @@ const handleAddKey = () => {
  * @param {string} key 新增 Key 名称
  */
 const expandCreatedKeyPath = (key) => {
-    const rawParts = String(key || '').split(':')
+    const separator = currentKeySeparator.value
+    const rawParts = String(key || '').split(separator)
     const parts = rawParts.length > MAX_TREE_DEPTH
         ? [
             ...rawParts.slice(0, MAX_TREE_DEPTH - 1),
-            rawParts.slice(MAX_TREE_DEPTH - 1).join(':')
+            rawParts.slice(MAX_TREE_DEPTH - 1).join(separator)
         ]
         : rawParts
     const nextExpandedKeys = new Set(expandedKeys.value)
 
     for (let index = 0; index < parts.length - 1; index += 1) {
-        nextExpandedKeys.add(`dir:${parts.slice(0, index + 1).join(':')}`)
+        nextExpandedKeys.add(`dir:${parts.slice(0, index + 1).join(separator)}`)
     }
 
     expandedKeys.value = nextExpandedKeys
@@ -461,23 +952,167 @@ const handleKeyCreated = (createdKey) => {
 }
 
 /**
+ * 重置当前 Key 列表。
+ * 清空搜索框、关闭精准搜索，并恢复为全量 SCAN。
+ */
+const resetKeyList = () => {
+    searchText.value = ''
+    isExactSearch.value = false
+    activeSearchPattern.value = '*'
+    loadKeys(true)
+}
+
+/**
  * 手动刷新当前 Key 列表。
- * 与切库、切页签不同，这里保留当前列表骨架，只在后台更新结果，减少界面抖动。
+ * 刷新等同于重置列表：清空搜索框、关闭精准搜索，并恢复为全量 SCAN。
  */
 const handleRefreshList = () => {
-    loadKeys(true, { preserveList: true })
+    if (isKeyListBusy.value) {
+        ElMessage.warning(t('keyList.messages.busy'))
+        return
+    }
+
+    resetKeyList()
+}
+
+/**
+ * 处理 Key 列表操作菜单命令。
+ * 当前阶段只搭建菜单入口，具体功能后续逐个实现时再替换为真实逻辑。
+ * @param {string} command 操作菜单命令
+ */
+const handleOperationCommand = async (command) => {
+    if (!command) {
+        return
+    }
+
+    if (command === 'closeConnection') {
+        // 关闭连接必须复用主视图的页签关闭流程，确保页签状态和 Redis 连接释放同步完成。
+        const openedConnectionConfig = openedConnectionConfigs.value.find(
+            (connectionConfig) => String(connectionConfig.id) === String(props.tabId)
+        )
+
+        if (!openedConnectionConfig) {
+            ElMessage.warning(t('keyList.messages.connectFirst'))
+            return
+        }
+
+        eventBus.emit('close-opened-connection', openedConnectionConfig)
+        return
+    }
+
+    if (command === 'closeAllOpenedKeys') {
+        emit('close-all-opened-keys')
+        return
+    }
+
+    if (command === 'memoryAnalysis') {
+        openMemoryAnalysisDrawer()
+        return
+    }
+
+    if (command === 'slowQuery') {
+        openSlowQueryDrawer()
+        return
+    }
+
+    if (command === 'exportKeys') {
+        if (batchDeleteSelectionMode.value) {
+            return
+        }
+
+        enterExportSelectionMode()
+        return
+    }
+
+    if (command === 'importKeys') {
+        if (batchDeleteSelectionMode.value) {
+            return
+        }
+
+        await handleImportKeys()
+        return
+    }
+
+    if (command === 'selectDeleteKeys') {
+        if (exportSelectionMode.value) {
+            ElMessage.warning(t('keyList.operations.messages.batchDeleteDisabledInExport'))
+            return
+        }
+
+        if (batchDeleteSelectionMode.value) {
+            return
+        }
+
+        enterBatchDeleteSelectionMode()
+        return
+    }
+
+    if (command === 'deleteAllKeys') {
+        if (!props.tabId) {
+            ElMessage.warning(t('keyList.messages.connectFirst'))
+            return
+        }
+
+        if (isDeletingAllKeys.value) {
+            return
+        }
+
+        try {
+            await ElMessageBox.confirm(
+                t('keyList.operations.confirm.deleteAllMessage', {value: props.dbIndex}),
+                t('keyList.operations.confirm.deleteAllTitle'),
+                {
+                    confirmButtonText: t('keyList.operations.confirm.deleteAllConfirm'),
+                    cancelButtonText: t('common.cancel'),
+                    type: 'warning',
+                    confirmButtonClass: 'el-button--danger'
+                }
+            )
+
+            isDeletingAllKeys.value = true
+            // FLUSHDB 只清空当前连接已选择的 DB，成功后重置列表，避免展示已被删除的旧 Key。
+            const response = await window.api.redis.executeCommand(props.tabId, 'FLUSHDB', [])
+
+            if (!response.success) {
+                ElMessage.error(`${t('keyList.operations.messages.deleteAllFail')}: ${response.error || t('common.unknownError')}`)
+                return
+            }
+
+            ElMessage.success(t('keyList.operations.messages.deleteAllSuccess'))
+            eventBus.emit('reset-page-info', {tabId: props.tabId})
+        } catch (error) {
+            if (error !== 'cancel' && error !== 'close') {
+                ElMessage.error(`${t('keyList.operations.messages.deleteAllFail')}: ${error.message || error}`)
+            }
+        } finally {
+            isDeletingAllKeys.value = false
+        }
+        return
+    }
+
+    ElMessage.info(t('keyList.operations.messages.pending'))
 }
 
 /**
  * 提交当前搜索条件。
  * 只有用户按下回车时，才会把输入框内容和精准搜索状态同步到当前生效搜索模式中。
  */
-const handleSubmitSearch = () => {
+const handleSubmitSearch = async () => {
+    if (isKeyListBusy.value || isSearchingKeys.value) {
+        return
+    }
+
     const keyword = searchText.value.trim()
     activeSearchPattern.value = keyword
         ? (isExactSearch.value ? keyword : `*${keyword}*`)
         : '*'
-    loadKeys(true, { preserveList: true })
+
+    try {
+        isSearchingKeys.value = true
+        await loadKeys(true, {preserveList: true})
+    } finally {
+        isSearchingKeys.value = false
+    }
 }
 
 /**
@@ -486,9 +1121,9 @@ const handleSubmitSearch = () => {
  * @param {{ preserveList?: boolean }} options 额外控制项
  */
 const loadKeys = async (reset = false, options = {}) => {
-    const { preserveList = false } = options
+    const {preserveList = false} = options
 
-    if (!props.tabId || isInitialLoading.value || isLoadingMore.value || isLoadingAll.value) {
+    if (!props.tabId || isInitialLoading.value || isLoadingMore.value || isLoadingAll.value || isKeyListBusy.value) {
         return
     }
 
@@ -539,7 +1174,7 @@ const loadKeys = async (reset = false, options = {}) => {
  * 一次性加载当前搜索条件下的全部 Key。
  */
 const loadAll = async () => {
-    if (!props.tabId || !hasMore.value || isInitialLoading.value || isLoadingMore.value || isLoadingAll.value) {
+    if (!props.tabId || !hasMore.value || isInitialLoading.value || isLoadingMore.value || isLoadingAll.value || isKeyListBusy.value) {
         return
     }
 
@@ -610,6 +1245,7 @@ const applyDeletedKeyPatch = (patch) => {
     }
 
     allScannedKeys.value.splice(targetIndex, 1)
+    removeSelectedKeys([patch.key])
 }
 
 // 监听当前连接页签变化：切换到新的连接时，从头重新扫描对应 db 的 Key。
@@ -622,15 +1258,15 @@ watch(
             resetScanState()
         }
     },
-    { immediate: true }
+    {immediate: true}
 )
 
-// 监听当前 db 变化：切换库后需要清空现有列表并重新拉取新库中的 Key。
+// 监听当前 db 变化：切换库等同刷新列表，需要清空搜索条件并重新拉取新库中的 Key。
 watch(
     () => props.dbIndex,
     () => {
         if (props.tabId) {
-            loadKeys(true)
+            resetKeyList()
         }
     }
 )
@@ -645,6 +1281,18 @@ watch(
 watch(
     () => props.deletedKeyPatch,
     (patch) => applyDeletedKeyPatch(patch)
+)
+
+// 监听已加载 Key 变化：搜索、刷新或删除后，剔除不再存在于当前列表中的选择项。
+watch(
+    allScannedKeys,
+    () => pruneSelectionsByLoadedKeys()
+)
+
+// 监听父级重置版本号：顶部刷新当前 PageInfo 时，Key 列表需要回到未搜索的全量扫描状态。
+watch(
+    () => props.resetVersion,
+    () => resetKeyList()
 )
 </script>
 
@@ -663,145 +1311,15 @@ html.dark .key-list-panel {
     --detail-header-bg-color: var(--el-fill-color-light);
 }
 
-/* 顶部工具栏：承载模式切换、搜索和刷新，保持固定高度避免主体区跳动。 */
-.toolbar {
-    display: flex;
-    gap: 8px;
-    padding: 10px 12px;
+/* 搜索结果提示：固定在列表顶部，用轻量文案提示当前列表是搜索后的结果。 */
+.search-result-tip {
     flex-shrink: 0;
-    align-items: center;
-    border-bottom: 1px solid var(--el-border-color-light);
-    background: var(--detail-header-bg-color);
-}
-
-/* 搜索框：占据主要可用宽度，同时限制最大宽度避免工具栏失衡。 */
-.toolbar .search-input {
-    flex: 1;
-    max-width: 260px;
-}
-
-/* 视图切换按钮：图标跟随按钮文字色，尺寸与工具栏内其他图标保持一致。 */
-.view-mode-btn {
-    width: 32px;
-    padding: 0;
-}
-
-/* 添加 Key 按钮：保持普通图标按钮形态，不使用圆形外观。 */
-.add-key-btn {
-    width: 32px;
-    padding: 0;
-}
-
-/* 刷新按钮：通过自动左边距推到工具栏最右端。 */
-.refresh-btn {
-    margin-left: auto;
-}
-
-/* 精准搜索复选框：嵌入输入框右侧，提供轻量模式切换，不额外挤占工具栏宽度。 */
-.exact-search-checkbox {
-    display: inline-flex;
-    margin-left: 6px;
-    align-items: center;
-}
-
-/* 列表主体区：让滚动区域正确继承剩余高度。 */
-.keys-body {
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-}
-
-/* 虚拟列表自适应容器：承接剩余高度，让虚拟滚动区域正确铺满主体区。 */
-.keys-auto-resizer {
-    width: 100%;
-    height: 100%;
-}
-
-/* 单行 Key 项：统一行高、悬浮反馈和边界线，便于高频浏览。 */
-.key-row {
-    display: flex;
-    gap: 6px;
     padding: 7px 12px;
-    height: 40px;
-    cursor: pointer;
+    color: var(--el-text-color-secondary);
     font-size: 13px;
-    box-sizing: border-box;
-    align-items: center;
-    transition: background 0.15s ease;
+    line-height: 18px;
     border-bottom: 1px solid var(--el-border-color-lighter);
-}
-
-/* 行悬浮态：轻量高亮当前鼠标所在项。 */
-.key-row:hover {
-    background: var(--el-table-row-hover-bg-color, var(--el-color-primary-light-9));
-}
-
-/* 当前选中项：使用主题色浅色背景强化焦点。 */
-.key-row.is-active {
-    background: var(--el-color-primary-light-8) !important;
-    color: var(--el-color-primary);
-}
-
-/* 目录节点：仅通过稍大的字号区分，默认不加粗，避免未选中时视觉过重。 */
-.key-row.is-directory {
-    font-weight: 400;
-    font-size: 15px;
-}
-
-/* 祖先目录高亮：当子节点被选中时，用主题色和更高字重标识当前路径上的父节点。 */
-.key-row.is-ancestor-active {
-    color: var(--el-color-primary);
-    font-weight: 600;
-}
-
-/* 祖先目录下的展开图标同步使用主题色，保持整条路径视觉一致。 */
-.key-row.is-ancestor-active .expand-icon {
-    color: var(--el-color-primary);
-}
-
-/* 展开图标区域：提供稳定点击热区，避免文本抖动。 */
-.expand-icon {
-    display: flex;
-    width: 16px;
-    cursor: pointer;
-    flex-shrink: 0;
-    align-items: center;
-    color: var(--el-text-color-secondary);
-}
-
-/* 类型标签：固定最小宽度，避免不同类型导致列对齐不齐。 */
-.key-type-tag {
-    min-width: 40px;
-    padding: 2px 6px;
-    font-size: 11px;
-    flex-shrink: 0;
-    text-align: center;
-}
-
-
-/* Key 名称区域：在有限宽度下省略超长内容。 */
-.key-name {
-    flex: 1;
-    font-size: 15px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* 父节点数量：固定贴在行尾，用较轻的颜色提示目录下的真实 Key 数量。 */
-.key-count {
-    flex-shrink: 0;
-    margin-left: 8px;
-    font-size: 12px;
-    color: var(--el-text-color-secondary);
-}
-
-/* 空态容器：保证无数据时仍然维持居中展示。 */
-.empty-state {
-    display: flex;
-    height: 100%;
-    align-items: center;
-    justify-content: center;
+    background: var(--el-fill-color-extra-light);
 }
 
 /* 底部分页操作区：固定在底部，和主列表视觉分层。 */

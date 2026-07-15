@@ -1,8 +1,8 @@
 import electron from 'electron'
-import { createLogger } from '../../utils/logger.js'
-import { redisConnectionManager } from '../../managers/RedisConnectionManager.js'
+import {createLogger} from '../../utils/logger.js'
+import {redisConnectionManager} from '../../managers/RedisConnectionManager.js'
 
-const { ipcMain } = electron
+const {ipcMain} = electron
 const log = createLogger('redis-ipc')
 
 /**
@@ -34,6 +34,41 @@ const REDIS_IPC_HANDLERS = [
         channel: 'redis:scan-keys',
         description: 'SCAN 扫描 Key',
         handler: (connectionId, cursor, pattern, count) => redisConnectionManager.scanKeys(connectionId, cursor, pattern, count)
+    },
+    {
+        channel: 'redis:scan-keys-by-pattern',
+        description: '按 pattern 预览 Key 列表',
+        handler: (connectionId, pattern, options) => redisConnectionManager.scanKeysByPattern(connectionId, pattern, options)
+    },
+    {
+        channel: 'redis:delete-keys',
+        description: '批量删除指定 Key',
+        handler: (connectionId, keys) => redisConnectionManager.deleteKeys(connectionId, keys)
+    },
+    {
+        channel: 'redis:export-keys',
+        description: '批量导出指定 Key 的完整数据',
+        handler: (connectionId, keys) => redisConnectionManager.exportKeys(connectionId, keys)
+    },
+    {
+        channel: 'redis:import-keys',
+        description: '批量导入 Key 导出文件中的数据',
+        handler: (connectionId, importData, options) => redisConnectionManager.importKeys(connectionId, importData, options)
+    },
+    {
+        channel: 'redis:analyze-key-memory',
+        description: '分析当前 DB Key 内存占用',
+        handler: (connectionId, options) => redisConnectionManager.analyzeKeyMemory(connectionId, options)
+    },
+    {
+        channel: 'redis:get-slow-log',
+        description: '读取 Redis 实例级慢查询日志',
+        handler: (connectionId, options) => redisConnectionManager.getSlowLog(connectionId, options)
+    },
+    {
+        channel: 'redis:reset-slow-log',
+        description: '清空 Redis 实例级慢查询日志',
+        handler: (connectionId) => redisConnectionManager.resetSlowLog(connectionId)
     },
     {
         channel: 'redis:get-key-data',
@@ -92,7 +127,7 @@ const REDIS_IPC_HANDLERS = [
  * 当前文件只负责 IPC 边界，Redis 连接、命令执行和数据读取由 RedisConnectionManager 承担。
  */
 export default () => {
-    REDIS_IPC_HANDLERS.forEach(({ channel, description, handler }) => {
+    REDIS_IPC_HANDLERS.forEach(({channel, description, handler}) => {
         // 每个通道统一丢弃 event，只把渲染进程传入的业务参数交给 manager。
         ipcMain.handle(channel, async (event, ...args) => {
             return await handler(...args)

@@ -3,14 +3,9 @@
  * 负责创建主业务窗口，并提供最小化、最大化、隐藏、重载、标题设置等窗口控制能力。
  */
 import electron from 'electron'
-import {
-    attachRendererDiagnostics,
-    createSecureWebPreferences,
-    loadRendererRoute,
-    loadVueDevToolsInDevelopment
-} from '../managers/WindowsManager.js'
+import {attachRendererDiagnostics, createSecureWebPreferences, loadRendererRoute, loadVueDevToolsInDevelopment} from '../managers/WindowsManager.js'
 
-const { app, BrowserWindow, screen } = electron
+const {app, BrowserWindow, screen} = electron
 
 /**
  * 根据主屏幕工作区计算主窗口初始尺寸。
@@ -19,7 +14,7 @@ const { app, BrowserWindow, screen } = electron
  * @returns {{ width: number, height: number }} 主窗口初始宽高
  */
 const getInitialWindowSize = () => {
-    const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
+    const {width: screenWidth, height: screenHeight} = screen.getPrimaryDisplay().workAreaSize
 
     return {
         width: Math.floor(screenWidth * 0.75),
@@ -43,7 +38,7 @@ class MainWindow {
      * 使用无边框窗口承载自定义标题栏，并启用安全的 preload 边界配置。
      */
     createWindow() {
-        const { width, height } = getInitialWindowSize()
+        const {width, height} = getInitialWindowSize()
 
         this.win = new BrowserWindow({
             width,

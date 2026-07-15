@@ -2,8 +2,8 @@
  * Vue Router 路由入口。
  * Electron 渲染进程使用 hash 路由，避免 file:// 或打包路径下 history 路由刷新失效。
  */
-import { createRouter, createWebHashHistory } from 'vue-router'
-import { useI18n } from '../i18n/index.js'
+import {createRouter, createWebHashHistory} from 'vue-router'
+import {useI18n} from '../i18n/index.js'
 
 // 默认页面标题：路由未声明 meta.title 时使用。
 const DEFAULT_PAGE_TITLE = 'Other Redis Desktop Manager'
@@ -27,7 +27,7 @@ const readRouteTitle = (titleKey) => {
     }
 
     try {
-        const { t } = useI18n()
+        const {t} = useI18n()
         return t(titleKey, ROUTE_TITLE_FALLBACKS[titleKey] || '')
     } catch (error) {
         return ROUTE_TITLE_FALLBACKS[titleKey] || ''

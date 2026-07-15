@@ -1,10 +1,7 @@
-import { CONNECTION_CONFIG_TABLE_NAME, databaseConnection } from '../index.js'
+import {CONNECTION_CONFIG_TABLE_NAME, databaseConnection} from '../index.js'
 import ConnectionConfigModel from '../models/ConnectionConfigModel.js'
-import { useI18n } from '../../i18n/index.js'
-import {
-    normalizeConnectionConfigGroup,
-    normalizeConnectionGroupName
-} from '../../utils/connectionGroupUtil.js'
+import {useI18n} from '../../i18n/index.js'
+import {normalizeConnectionConfigGroup, normalizeConnectionGroupName} from '../../utils/connectionGroupUtil.js'
 
 /**
  * 判断字符串是否为空。
@@ -70,7 +67,7 @@ class ConnectConfigRepository {
      * @returns {Promise<ConnectionConfigModel>} 创建后的配置
      */
     async create(config) {
-        const { t } = useI18n()
+        const {t} = useI18n()
         const table = await this.getTable()
         const model = createModel(config)
 
@@ -169,7 +166,7 @@ class ConnectConfigRepository {
      * @returns {Promise<ConnectionConfigModel|null>} 更新后的配置
      */
     async update(id, config) {
-        const { t } = useI18n()
+        const {t} = useI18n()
         const table = await this.getTable()
         const model = createModel(config)
 
@@ -254,7 +251,7 @@ class ConnectConfigRepository {
      * @returns {Promise<number>} 更新的记录数
      */
     async updateGroupName(oldGroupName, newGroupName) {
-        const { t } = useI18n()
+        const {t} = useI18n()
         const normalizedOldGroupName = normalizeConnectionGroupName(oldGroupName)
         const normalizedNewGroupName = normalizeConnectionGroupName(newGroupName)
 

@@ -2,221 +2,6 @@
     SettingsDrawer.vue
     描述：系统设置抽屉。管理主题、主题色、侧边栏、连接超时、关闭行为和开发者模式等用户偏好。
 -->
-<script setup>
-import { Check, LinkThree, More, SettingTwo, Theme } from '@icon-park/vue-next'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { storeToRefs } from 'pinia'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { applyThemeTransition } from '../../utils/themeTransition.js'
-import { useI18n } from '../../i18n/index.js'
-import { useUserSettingsStore } from '../../stores/modules/userSettingsStore.js'
-import UpdateCheckDialog from '../dialog/UpdateCheckDialog.vue'
-
-// 组件入参：由标题栏或其他入口控制设置抽屉显示状态。
-
-const props = defineProps({
-    visible: {
-        type: Boolean
-    }
-})
-
-// 对外事件：同步 v-model:visible。
-
-const emit = defineEmits(['update:visible'])
-
-// 抽屉可见性代理：把 Element Plus Drawer 的 v-model 透传给父组件。
-const drawerVisible = computed({
-    get: () => props.visible,
-    // update:visible 是一个特殊的 Vue 约定写法，用于实现自定义组件的双向绑定
-    // 会自动更新父组件的 v-model:visible 绑定的属性值
-    set: value => emit('update:visible', value)
-})
-
-// 用户设置 store：设置抽屉中的所有配置项都直接读写该 store。
-const userSettingsStore = useUserSettingsStore()
-// 国际化文案：设置抽屉是语言切换的入口，需要优先接入 i18n。
-
-const { t } = useI18n()
-
-// 记录最后点击位置，用于 View Transitions 动画圆心
-let lastClickX = 0
-let lastClickY = 0
-
-const onMousedown = (e) => {
-    lastClickX = e.clientX
-    lastClickY = e.clientY
-}
-
-onMounted(() => document.addEventListener('mousedown', onMousedown))
-onUnmounted(() => document.removeEventListener('mousedown', onMousedown))
-
-const {
-    theme,
-    color,
-    language,
-    sideCollapseState,
-    connectionSettings,
-    closeManagement,
-    developerMode
-} = storeToRefs(userSettingsStore)
-
-// 当前激活的设置标签页。
-const activeTab = ref('general')
-
-// 当前应用版本：从 main 进程读取，避免设置页写死版本号。
-
-const currentVersion = ref('1.0.0')
-
-// 更新检查状态：控制设置页按钮 loading，避免重复点击。
-
-const checkingUpdate = ref(false)
-
-// 更新弹窗状态：发现新版本后交给独立弹窗组件展示。
-
-const updateDialogVisible = ref(false)
-
-// 待展示的更新信息：由 main 进程从 GitHub Release 返回，传给更新弹窗组件。
-
-const updateDialogInfo = ref(null)
-
-// 设置左侧 Tabs 宽度：中文紧凑显示，英文为较长标签预留空间。
-
-const settingsTabWidth = computed(() => language.value === 'en-US' ? '130px' : '100px')
-
-// 主题选项：浅色/深色，切换时使用 View Transition 动画。
-
-const themeOptions = computed(() => [
-    { label: t('settings.themeLight'), value: 'light' },
-    { label: t('settings.themeDark'), value: 'dark' }
-])
-
-// 主题色选项：用于切换 Element Plus 主题色变量。
-const colorOptions = computed(() => [
-    { label: t('settings.colors.default'), value: 'default', color: '#409EFF' },
-    { label: t('settings.colors.pink'), value: 'pink', color: '#E91E63' },
-    { label: t('settings.colors.purple'), value: 'purple', color: '#673AB7' },
-    { label: t('settings.colors.orange'), value: 'orange', color: '#FF9800' },
-    { label: t('settings.colors.green'), value: 'green', color: '#4CAF50' },
-    { label: t('settings.colors.business'), value: 'business', color: '#2C3E50' },
-    { label: t('settings.colors.cyan'), value: 'cyan', color: '#00BCD4' },
-    { label: t('settings.colors.brown'), value: 'brown', color: '#8B4513' },
-    { label: t('settings.colors.blue'), value: 'blue', color: '#1E88E5' }
-])
-
-// 语言选项：切换后会更新 Element Plus 内置文案和已接入 i18n 的业务文案。
-const languageOptions = [
-    {label: '简体中文', value: 'zh-CN'},
-    {label: 'English', value: 'en-US'}
-]
-
-/**
- * 关闭抽屉
- */
-const closeDrawer = () => {
-    drawerVisible.value = false
-}
-
-/**
- * 处理主题变更
- */
-const handleThemeChange = (value) => {
-    applyThemeTransition(() => {
-        userSettingsStore.setTheme(value)
-    }, { clientX: lastClickX, clientY: lastClickY })
-}
-
-/**
- * 处理颜色变更
- */
-const handleColorChange = (value) => {
-    applyThemeTransition(() => {
-        userSettingsStore.setColor(value)
-    }, { clientX: lastClickX, clientY: lastClickY })
-}
-
-/**
- * 处理语言变更
- */
-const handleLanguageChange = (value) => {
-    userSettingsStore.setLanguage(value)
-}
-
-/**
- * 处理开发者模式变更
- */
-const handleDeveloperModeChange = async (value) => {
-    if (value) {
-        await window.api.develop.openDevelopMode()
-    } else {
-        await window.api.develop.closeDevelopMode()
-    }
-}
-
-/**
- * 重置所有设置
- */
-const handleReset = async () => {
-    try {
-        await ElMessageBox.confirm(
-            t('settings.resetConfirmMessage'),
-            t('settings.resetConfirmTitle'),
-            {
-                confirmButtonText: t('common.confirm'),
-                cancelButtonText: t('common.cancel'),
-                type: 'warning'
-            }
-        )
-        userSettingsStore.resetToDefaults()
-        ElMessage.success(t('settings.resetSuccess'))
-    } catch {
-        // 用户取消操作
-    }
-}
-
-/**
- * 手动检查 GitHub Release 更新。
- * 通过 main 进程访问 GitHub Release，renderer 只负责展示 loading、结果弹窗和错误提示。
- */
-const handleCheckUpdate = async () => {
-    if (checkingUpdate.value) {
-        return
-    }
-
-    checkingUpdate.value = true
-
-    try {
-        const updateResult = await window.api.appInfo.checkUpdate()
-
-        if (!updateResult.success) {
-            ElMessage.error(updateResult.error || t('settings.update.checkFail'))
-            return
-        }
-
-        const updateInfo = updateResult.data
-        currentVersion.value = updateInfo.currentVersion || currentVersion.value
-
-        if (!updateInfo.hasUpdate) {
-            ElMessage.success(t('settings.update.noUpdate', { value: updateInfo.currentVersion }))
-            return
-        }
-
-        updateDialogInfo.value = updateInfo
-        updateDialogVisible.value = true
-    } catch (error) {
-        ElMessage.error(error.message || t('settings.update.checkFail'))
-    } finally {
-        checkingUpdate.value = false
-    }
-}
-onMounted(async () => {
-    try {
-        currentVersion.value = await window.api.appInfo.getVersion()
-    } catch {
-        currentVersion.value = '1.0.0'
-    }
-})
-</script>
-
 <template>
     <el-drawer
         :model-value="drawerVisible"
@@ -446,8 +231,223 @@ onMounted(async () => {
         </div>
     </el-drawer>
     <!-- 更新提示弹窗：独立组件负责版本信息展示、Markdown 内容渲染和 Release 页面跳转。 -->
-    <UpdateCheckDialog v-model:visible="updateDialogVisible" :update-info="updateDialogInfo" />
+    <UpdateCheckDialog v-model:visible="updateDialogVisible" :update-info="updateDialogInfo"/>
 </template>
+
+<script setup>
+import {Check, LinkThree, More, SettingTwo, Theme} from '@icon-park/vue-next'
+import {computed, onMounted, onUnmounted, ref} from 'vue'
+import {storeToRefs} from 'pinia'
+import {ElMessage, ElMessageBox} from 'element-plus'
+import {applyThemeTransition} from '../../utils/themeTransition.js'
+import {useI18n} from '../../i18n/index.js'
+import {useUserSettingsStore} from '../../stores/modules/userSettingsStore.js'
+import UpdateCheckDialog from '../dialog/UpdateCheckDialog.vue'
+
+// 组件入参：由标题栏或其他入口控制设置抽屉显示状态。
+
+const props = defineProps({
+    visible: {
+        type: Boolean
+    }
+})
+
+// 对外事件：同步 v-model:visible。
+
+const emit = defineEmits(['update:visible'])
+
+// 抽屉可见性代理：把 Element Plus Drawer 的 v-model 透传给父组件。
+const drawerVisible = computed({
+    get: () => props.visible,
+    // update:visible 是一个特殊的 Vue 约定写法，用于实现自定义组件的双向绑定
+    // 会自动更新父组件的 v-model:visible 绑定的属性值
+    set: value => emit('update:visible', value)
+})
+
+// 用户设置 store：设置抽屉中的所有配置项都直接读写该 store。
+const userSettingsStore = useUserSettingsStore()
+// 国际化文案：设置抽屉是语言切换的入口，需要优先接入 i18n。
+
+const {t} = useI18n()
+
+// 记录最后点击位置，用于 View Transitions 动画圆心
+let lastClickX = 0
+let lastClickY = 0
+
+const onMousedown = (e) => {
+    lastClickX = e.clientX
+    lastClickY = e.clientY
+}
+
+onMounted(() => document.addEventListener('mousedown', onMousedown))
+onUnmounted(() => document.removeEventListener('mousedown', onMousedown))
+
+const {
+    theme,
+    color,
+    language,
+    sideCollapseState,
+    connectionSettings,
+    closeManagement,
+    developerMode
+} = storeToRefs(userSettingsStore)
+
+// 当前激活的设置标签页。
+const activeTab = ref('general')
+
+// 当前应用版本：从 main 进程读取，避免设置页写死版本号。
+
+const currentVersion = ref('1.0.0')
+
+// 更新检查状态：控制设置页按钮 loading，避免重复点击。
+
+const checkingUpdate = ref(false)
+
+// 更新弹窗状态：发现新版本后交给独立弹窗组件展示。
+
+const updateDialogVisible = ref(false)
+
+// 待展示的更新信息：由 main 进程从 GitHub Release 返回，传给更新弹窗组件。
+
+const updateDialogInfo = ref(null)
+
+// 设置左侧 Tabs 宽度：中文紧凑显示，英文为较长标签预留空间。
+
+const settingsTabWidth = computed(() => language.value === 'en-US' ? '130px' : '100px')
+
+// 主题选项：浅色/深色，切换时使用 View Transition 动画。
+
+const themeOptions = computed(() => [
+    {label: t('settings.themeLight'), value: 'light'},
+    {label: t('settings.themeDark'), value: 'dark'}
+])
+
+// 主题色选项：用于切换 Element Plus 主题色变量。
+const colorOptions = computed(() => [
+    {label: t('settings.colors.default'), value: 'default', color: '#409EFF'},
+    {label: t('settings.colors.pink'), value: 'pink', color: '#E91E63'},
+    {label: t('settings.colors.purple'), value: 'purple', color: '#673AB7'},
+    {label: t('settings.colors.orange'), value: 'orange', color: '#FF9800'},
+    {label: t('settings.colors.green'), value: 'green', color: '#4CAF50'},
+    {label: t('settings.colors.business'), value: 'business', color: '#2C3E50'},
+    {label: t('settings.colors.cyan'), value: 'cyan', color: '#00BCD4'},
+    {label: t('settings.colors.brown'), value: 'brown', color: '#8B4513'},
+    {label: t('settings.colors.blue'), value: 'blue', color: '#1E88E5'}
+])
+
+// 语言选项：切换后会更新 Element Plus 内置文案和已接入 i18n 的业务文案。
+const languageOptions = [
+    {label: '简体中文', value: 'zh-CN'},
+    {label: 'English', value: 'en-US'}
+]
+
+/**
+ * 关闭抽屉
+ */
+const closeDrawer = () => {
+    drawerVisible.value = false
+}
+
+/**
+ * 处理主题变更
+ */
+const handleThemeChange = (value) => {
+    applyThemeTransition(() => {
+        userSettingsStore.setTheme(value)
+    }, {clientX: lastClickX, clientY: lastClickY})
+}
+
+/**
+ * 处理颜色变更
+ */
+const handleColorChange = (value) => {
+    applyThemeTransition(() => {
+        userSettingsStore.setColor(value)
+    }, {clientX: lastClickX, clientY: lastClickY})
+}
+
+/**
+ * 处理语言变更
+ */
+const handleLanguageChange = (value) => {
+    userSettingsStore.setLanguage(value)
+}
+
+/**
+ * 处理开发者模式变更
+ */
+const handleDeveloperModeChange = async (value) => {
+    if (value) {
+        await window.api.develop.openDevelopMode()
+    } else {
+        await window.api.develop.closeDevelopMode()
+    }
+}
+
+/**
+ * 重置所有设置
+ */
+const handleReset = async () => {
+    try {
+        await ElMessageBox.confirm(
+            t('settings.resetConfirmMessage'),
+            t('settings.resetConfirmTitle'),
+            {
+                confirmButtonText: t('common.confirm'),
+                cancelButtonText: t('common.cancel'),
+                type: 'warning'
+            }
+        )
+        userSettingsStore.resetToDefaults()
+        ElMessage.success(t('settings.resetSuccess'))
+    } catch {
+        // 用户取消操作
+    }
+}
+
+/**
+ * 手动检查 GitHub Release 更新。
+ * 通过 main 进程访问 GitHub Release，renderer 只负责展示 loading、结果弹窗和错误提示。
+ */
+const handleCheckUpdate = async () => {
+    if (checkingUpdate.value) {
+        return
+    }
+
+    checkingUpdate.value = true
+
+    try {
+        const updateResult = await window.api.appInfo.checkUpdate()
+
+        if (!updateResult.success) {
+            ElMessage.error(updateResult.error || t('settings.update.checkFail'))
+            return
+        }
+
+        const updateInfo = updateResult.data
+        currentVersion.value = updateInfo.currentVersion || currentVersion.value
+
+        if (!updateInfo.hasUpdate) {
+            ElMessage.success(t('settings.update.noUpdate', {value: updateInfo.currentVersion}))
+            return
+        }
+
+        updateDialogInfo.value = updateInfo
+        updateDialogVisible.value = true
+    } catch (error) {
+        ElMessage.error(error.message || t('settings.update.checkFail'))
+    } finally {
+        checkingUpdate.value = false
+    }
+}
+onMounted(async () => {
+    try {
+        currentVersion.value = await window.api.appInfo.getVersion()
+    } catch {
+        currentVersion.value = '1.0.0'
+    }
+})
+</script>
 
 <style scoped>
 .drawer-header {

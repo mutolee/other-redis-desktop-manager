@@ -4,8 +4,8 @@
  */
 import fs from 'fs'
 import path from 'path'
-import { fileURLToPath, pathToFileURL } from 'url'
-import { createLogger } from '../utils/logger.js'
+import {fileURLToPath, pathToFileURL} from 'url'
+import {createLogger} from '../utils/logger.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const log = createLogger('ipc')

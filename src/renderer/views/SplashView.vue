@@ -2,12 +2,42 @@
     SplashView.vue
     描述：应用启动页。展示启动动画、产品名称、加载阶段文案和版本信息。
  -->
+<template>
+    <!-- 启动画面背景容器：深色背景 + 圆角边框，模拟独立启动窗口。 -->
+    <div class="splash-page">
+        <!-- 产品 Logo 区域。 -->
+        <div class="logo-container">
+            <div class="logo">
+                <img src="../assets/logo.png" alt=""/>
+            </div>
+        </div>
+
+        <!-- 产品名称：使用渐变文字作为启动页核心视觉焦点。 -->
+        <div class="product-name">Other Redis Desktop Manager</div>
+
+        <!-- 加载动画区域：阶段文案 + 移动进度条。 -->
+        <div class="loading-container">
+            <div class="loading-text">
+                {{ loadingText }}<span class="loading-dots"></span>
+            </div>
+            <div class="loading-progress">
+                <div class="bar"></div>
+            </div>
+        </div>
+
+        <!-- 版本信息：右下角展示应用版本和 Chromium 版本。 -->
+        <div class="version-container">
+            <span :class="{ 'version-error': versionError }">{{ appVersion }}</span>
+        </div>
+    </div>
+</template>
+
 <script setup>
-import { onMounted, ref } from 'vue'
-import { useI18n } from '../i18n/index.js'
+import {onMounted, ref} from 'vue'
+import {useI18n} from '../i18n/index.js'
 
 // 国际化文案读取函数：驱动启动页版本状态和加载阶段文案。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 应用版本号：由 preload 从 main 进程获取，展示在启动页右下角。
 const appVersion = ref(t('splash.versionLoading'))
@@ -61,36 +91,6 @@ const simulateLoadingProcess = async () => {
     }
 }
 </script>
-
-<template>
-    <!-- 启动画面背景容器：深色背景 + 圆角边框，模拟独立启动窗口。 -->
-    <div class="splash-page">
-        <!-- 产品 Logo 区域。 -->
-        <div class="logo-container">
-            <div class="logo">
-                <img src="../assets/logo.png" alt="" />
-            </div>
-        </div>
-
-        <!-- 产品名称：使用渐变文字作为启动页核心视觉焦点。 -->
-        <div class="product-name">Other Redis Desktop Manager</div>
-
-        <!-- 加载动画区域：阶段文案 + 移动进度条。 -->
-        <div class="loading-container">
-            <div class="loading-text">
-                {{ loadingText }}<span class="loading-dots"></span>
-            </div>
-            <div class="loading-progress">
-                <div class="bar"></div>
-            </div>
-        </div>
-
-        <!-- 版本信息：右下角展示应用版本和 Chromium 版本。 -->
-        <div class="version-container">
-            <span :class="{ 'version-error': versionError }">{{ appVersion }}</span>
-        </div>
-    </div>
-</template>
 
 <style scoped>
 .splash-page {

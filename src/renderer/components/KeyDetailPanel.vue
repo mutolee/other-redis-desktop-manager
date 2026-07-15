@@ -7,7 +7,7 @@
     <div class="key-detail-panel">
         <!-- 空状态：右侧没有打开 Key 时展示统一提示。 -->
         <div v-if="!selectedKey" class="empty-state">
-            <el-empty :description="t('keyDetail.empty.selectKey')" />
+            <el-empty :description="t('keyDetail.empty.selectKey')"/>
         </div>
 
         <!-- 详情主体：公共头部和类型详情区域分离，保证 String/Hash/List 等组件只关注自己的值内容。 -->
@@ -156,9 +156,9 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Copy as CommandCode, Delete, Refresh } from '@icon-park/vue-next'
+import {computed, ref, watch} from 'vue'
+import {ElMessage, ElMessageBox} from 'element-plus'
+import {Check, Copy as CommandCode, Delete, Refresh} from '@icon-park/vue-next'
 import StringDetailPanel from './keyDetail/StringDetailPanel.vue'
 import HashDetailPanel from './keyDetail/HashDetailPanel.vue'
 import ListDetailPanel from './keyDetail/ListDetailPanel.vue'
@@ -166,10 +166,10 @@ import SetDetailPanel from './keyDetail/SetDetailPanel.vue'
 import ZSetDetailPanel from './keyDetail/ZSetDetailPanel.vue'
 import StreamDetailPanel from './keyDetail/StreamDetailPanel.vue'
 import UnsupportedDetailPanel from './keyDetail/UnsupportedDetailPanel.vue'
-import { useI18n } from '../i18n/index.js'
+import {useI18n} from '../i18n/index.js'
 
 // 国际化文案读取函数：驱动详情页空态、提示、确认框和操作反馈文案。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 组件入参：tabId 定位 Redis 连接，selectedKey 决定当前详情面板需要加载哪个 Key。
 const props = defineProps({
@@ -457,7 +457,7 @@ const handleRenameKey = async () => {
         }
 
         // 使用 RENAMENX 避免覆盖已存在的目标 Key，降低误删数据风险。
-        await ElMessageBox.confirm(t('keyDetail.confirm.renameMessage', { value: nextKey }), t('keyDetail.confirm.renameTitle'), {
+        await ElMessageBox.confirm(t('keyDetail.confirm.renameMessage', {value: nextKey}), t('keyDetail.confirm.renameTitle'), {
             confirmButtonText: t('common.confirm'),
             cancelButtonText: t('common.cancel'),
             type: 'warning'
@@ -484,7 +484,7 @@ const handleRenameKey = async () => {
         editableKey.value = nextKey
 
         ElMessage.success(t('keyDetail.messages.renameSuccess'))
-        emit('renamed', { oldKey, newKey: nextKey })
+        emit('renamed', {oldKey, newKey: nextKey})
     } catch (error) {
         if (error !== 'cancel') {
             ElMessage.error(error.message || t('keyDetail.messages.renameFail'))
@@ -580,7 +580,7 @@ const handleDeleteKey = async () => {
         }
 
         // 删除属于高风险操作，先要求用户确认。
-        await ElMessageBox.confirm(t('keyDetail.confirm.deleteMessage', { value: keyData.value.key }), t('keyDetail.confirm.deleteTitle'), {
+        await ElMessageBox.confirm(t('keyDetail.confirm.deleteMessage', {value: keyData.value.key}), t('keyDetail.confirm.deleteTitle'), {
             confirmButtonText: t('keyDetail.actions.delete'),
             cancelButtonText: t('common.cancel'),
             type: 'warning'
@@ -601,7 +601,7 @@ const handleDeleteKey = async () => {
         }
 
         ElMessage.success(t('keyDetail.messages.deleteSuccess'))
-        emit('deleted', { key: keyData.value.key })
+        emit('deleted', {key: keyData.value.key})
         emit('close')
     } catch (error) {
         if (error !== 'cancel') {
@@ -629,7 +629,7 @@ watch(
             errorMessage.value = ''
         }
     },
-    { immediate: true }
+    {immediate: true}
 )
 
 // 监听 Key 名称修改状态：按钮隐藏时同步关闭 tooltip，避免浮层状态残留。

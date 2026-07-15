@@ -1,5 +1,5 @@
-import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import {defineStore} from 'pinia'
+import {ref} from 'vue'
 
 /**
  * 基础 UI 状态存储。

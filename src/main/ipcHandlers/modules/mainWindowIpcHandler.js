@@ -3,11 +3,11 @@
  * 向渲染进程暴露最小化、最大化、关闭、隐藏、重载、标题设置和外部链接打开能力。
  */
 import electron from 'electron'
-import { getMainWindow } from '../../windows/mainWindow.js'
-import { createLogger } from '../../utils/logger.js'
-import { tMain } from '../../utils/mainI18n.js'
+import {getMainWindow} from '../../windows/mainWindow.js'
+import {createLogger} from '../../utils/logger.js'
+import {tMain} from '../../utils/mainI18n.js'
 
-const { ipcMain, shell } = electron
+const {ipcMain, shell} = electron
 const log = createLogger('main-window-ipc')
 
 // 允许从应用内打开的外部链接协议，避免 renderer 传入 file/javascript 等危险协议。
@@ -26,11 +26,11 @@ const withMainWindow = (actionName, action) => {
     if (!mainWindow) {
         const error = tMain('mainWindow.missing')
         log.warn(`${actionName} 失败: ${error}`)
-        return { success: false, error }
+        return {success: false, error}
     }
 
     action(mainWindow)
-    return { success: true }
+    return {success: true}
 }
 
 /**
@@ -63,15 +63,15 @@ const openExternalUrl = async (url) => {
         const parsedUrl = new URL(url.trim())
 
         if (!ALLOWED_EXTERNAL_PROTOCOLS.has(parsedUrl.protocol)) {
-            throw new Error(tMain('mainWindow.unsupportedProtocol', { value: parsedUrl.protocol }))
+            throw new Error(tMain('mainWindow.unsupportedProtocol', {value: parsedUrl.protocol}))
         }
 
         await shell.openExternal(parsedUrl.toString())
-        return { success: true }
+        return {success: true}
     } catch (error) {
         const message = error.message || tMain('mainWindow.openExternalFail')
-        log.warn(message, { url })
-        return { success: false, error: message }
+        log.warn(message, {url})
+        return {success: false, error: message}
     }
 }
 
@@ -125,7 +125,7 @@ const MAIN_WINDOW_IPC_HANDLERS = [
  * 注册主窗口控制相关 IPC 处理器。
  */
 export default () => {
-    for (const { channel, description, handler } of MAIN_WINDOW_IPC_HANDLERS) {
+    for (const {channel, description, handler} of MAIN_WINDOW_IPC_HANDLERS) {
         ipcMain.handle(channel, handler)
         log.info(`主窗口 IPC 已注册: ${channel} - ${description}`)
     }

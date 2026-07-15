@@ -2,27 +2,82 @@
     PageNavbar.vue
     描述：连接页签导航栏。展示已打开连接、连接状态图标和批量关闭页签操作。
  -->
+<template>
+    <div class="page-navbar-panel">
+        <div class="navbar">
+            <el-tabs
+                v-model="activeConnectionConfigId"
+                @tab-click="tabClick"
+                @tab-remove="tabClose"
+                class="el-tabs-override">
+                <el-tab-pane
+                    v-for="tab in openedConnectionConfigs"
+                    :closable="true"
+                    :name="tab.id"
+                    :key="tab.id">
+                    <template #label>
+                        <div class="nav-label">
+                            <el-icon size="18">
+                                <Loading class="loading-icon" v-if="tab.status === 'reconnecting' || tab.status === 'connecting'"/>
+                                <LinkInterrupt v-if="tab.status === 'disconnected' || tab.status === 'error'"/>
+                                <LinkThree v-if="tab.status === 'connected'"/>
+                            </el-icon>
+                            <span class="no-select">{{ tab.name }}</span>
+                        </div>
+                    </template>
+                </el-tab-pane>
+            </el-tabs>
+        </div>
+        <div class="navbar-operation">
+            <el-dropdown popper-class="page-navbar-dropdown" @command="dropdownEvent">
+                <span>
+                    <el-icon class="navbar-operation-icon"><Down/></el-icon>
+                </span>
+                <template #dropdown>
+                    <el-dropdown-menu>
+                        <el-dropdown-item command="closeOther">
+                            <el-icon>
+                                <CloseSmall/>
+                            </el-icon>
+                            <span class="dropdown-item-text">{{ t('pageNavbar.closeOther') }}</span>
+                        </el-dropdown-item>
+                        <el-dropdown-item command="closeLeft">
+                            <el-icon>
+                                <ToLeft/>
+                            </el-icon>
+                            <span class="dropdown-item-text">{{ t('pageNavbar.closeLeft') }}</span>
+                        </el-dropdown-item>
+                        <el-dropdown-item command="closeRight">
+                            <el-icon>
+                                <ToRight/>
+                            </el-icon>
+                            <span class="dropdown-item-text">{{ t('pageNavbar.closeRight') }}</span>
+                        </el-dropdown-item>
+                        <el-dropdown-item command="closeAll">
+                            <el-icon>
+                                <CircleClose/>
+                            </el-icon>
+                            <span class="dropdown-item-text">{{ t('pageNavbar.closeAll') }}</span>
+                        </el-dropdown-item>
+                    </el-dropdown-menu>
+                </template>
+            </el-dropdown>
+        </div>
+    </div>
+</template>
+
 <script setup>
-import {
-    Close,
-    CloseOne as CircleClose,
-    Down as ArrowDown,
-    Left as ArrowLeft,
-    LinkInterrupt,
-    LinkThree,
-    Loading,
-    Right as ArrowRight
-} from '@icon-park/vue-next'
-import { storeToRefs } from 'pinia'
-import { useI18n } from '../i18n/index.js'
-import { eventBus } from '../utils/eventBus.js'
-import { useConnectionConfigsStore } from '../stores/modules/connectionConfigsStore.js'
+import {CloseOne as CircleClose, CloseSmall, Down, LinkInterrupt, LinkThree, Loading, ToLeft, ToRight} from '@icon-park/vue-next'
+import {storeToRefs} from 'pinia'
+import {useI18n} from '../i18n/index.js'
+import {eventBus} from '../utils/eventBus.js'
+import {useConnectionConfigsStore} from '../stores/modules/connectionConfigsStore.js'
 
 // 国际化文案读取函数：驱动页签批量关闭菜单文案。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 连接配置 store：读取活动连接 ID 和已打开连接列表，驱动页签选中和关闭逻辑。
-const { activeConnectionConfigId, openedConnectionConfigs } = storeToRefs(useConnectionConfigsStore())
+const {activeConnectionConfigId, openedConnectionConfigs} = storeToRefs(useConnectionConfigsStore())
 
 /**
  * tab 点击事件
@@ -82,70 +137,6 @@ function dropdownEvent(command) {
     }
 }
 </script>
-
-<template>
-    <div class="page-navbar-panel">
-        <div class="navbar">
-            <el-tabs
-                v-model="activeConnectionConfigId"
-                @tab-click="tabClick"
-                @tab-remove="tabClose"
-                class="el-tabs-override">
-                <el-tab-pane
-                    v-for="tab in openedConnectionConfigs"
-                    :closable="true"
-                    :name="tab.id"
-                    :key="tab.id">
-                    <template #label>
-                        <div class="nav-label">
-                            <el-icon size="18">
-                                <Loading class="loading-icon" v-if="tab.status === 'reconnecting' || tab.status === 'connecting'"/>
-                                <LinkInterrupt v-if="tab.status === 'disconnected' || tab.status === 'error'"/>
-                                <LinkThree v-if="tab.status === 'connected'"/>
-                            </el-icon>
-                            <span class="no-select">{{ tab.name }}</span>
-                        </div>
-                    </template>
-                </el-tab-pane>
-            </el-tabs>
-        </div>
-        <div class="navbar-operation">
-            <el-dropdown popper-class="page-navbar-dropdown" @command="dropdownEvent">
-                <span>
-                  <el-icon class="navbar-operation-icon"><ArrowDown/></el-icon>
-                </span>
-                <template #dropdown>
-                    <el-dropdown-menu>
-                        <el-dropdown-item command="closeOther">
-                            <el-icon>
-                                <Close/>
-                            </el-icon>
-                            <span class="dropdown-item-text">{{ t('pageNavbar.closeOther') }}</span>
-                        </el-dropdown-item>
-                        <el-dropdown-item command="closeLeft">
-                            <el-icon>
-                                <ArrowLeft/>
-                            </el-icon>
-                            <span class="dropdown-item-text">{{ t('pageNavbar.closeLeft') }}</span>
-                        </el-dropdown-item>
-                        <el-dropdown-item command="closeRight">
-                            <el-icon>
-                                <ArrowRight/>
-                            </el-icon>
-                            <span class="dropdown-item-text">{{ t('pageNavbar.closeRight') }}</span>
-                        </el-dropdown-item>
-                        <el-dropdown-item command="closeAll">
-                            <el-icon>
-                                <CircleClose/>
-                            </el-icon>
-                            <span class="dropdown-item-text">{{ t('pageNavbar.closeAll') }}</span>
-                        </el-dropdown-item>
-                    </el-dropdown-menu>
-                </template>
-            </el-dropdown>
-        </div>
-    </div>
-</template>
 
 <style scoped>
 .page-navbar-panel {
@@ -245,14 +236,14 @@ function dropdownEvent(command) {
     background-color: color-mix(in srgb, var(--el-color-primary) 20%, transparent);
 }
 
-.nav-label{
+.nav-label {
     display: flex;
     align-items: center;
     height: 40px;
     gap: 5px;
 }
 
-.nav-label .i-icon-link-interrupt, .nav-label .i-icon-loading, .nav-label .i-icon-link-three{
+.nav-label .i-icon-link-interrupt, .nav-label .i-icon-loading, .nav-label .i-icon-link-three {
     width: 18px;
     height: 18px;
 }
@@ -289,21 +280,41 @@ function dropdownEvent(command) {
     height: 40px;
 }
 
+/* 右侧操作入口图标：icon-park 在 el-icon 中视觉略偏上，单独下移一点保持居中。 */
+.navbar-operation .navbar-operation-icon :deep(.i-icon) {
+    transform: translateY(1px);
+}
+
 /* 页签关闭菜单：下拉层会挂载到 body，需要使用全局选择器对齐 icon-park 图标和文本。 */
+:global(.page-navbar-dropdown .el-dropdown-menu) {
+    min-width: 158px;
+    padding: 4px 0;
+    background: var(--el-bg-color-overlay);
+}
+
 :global(.page-navbar-dropdown .el-dropdown-menu__item) {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    height: 36px;
+    line-height: 36px;
+    padding: 0 16px;
+    border-radius: 0;
+    color: var(--el-text-color-regular);
+}
+
+:global(.page-navbar-dropdown .el-dropdown-menu__item:hover) {
+    color: var(--el-color-primary);
 }
 
 :global(.page-navbar-dropdown .el-dropdown-menu__item .el-icon) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     line-height: 0;
-    margin-right: 0;
+    margin-right: 6px;
     flex-shrink: 0;
 }
 
@@ -311,9 +322,10 @@ function dropdownEvent(command) {
 :global(.page-navbar-dropdown .el-dropdown-menu__item .el-icon .i-icon) {
     display: inline-flex;
     transform: translateY(1px);
+    font-size: 18px;
 }
 
 :global(.page-navbar-dropdown .dropdown-item-text) {
-    line-height: 1;
+    line-height: 20px;
 }
 </style>

@@ -4,12 +4,12 @@
  */
 import fs from 'fs'
 import path from 'path'
-import { fileURLToPath } from 'url'
+import {fileURLToPath} from 'url'
 import electron from 'electron'
-import { createLogger } from '../utils/logger.js'
+import {createLogger} from '../utils/logger.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const { session } = electron
+const {session} = electron
 const log = createLogger('windows-manager')
 
 // 渲染进程开发服务器地址：主窗口和启动窗口通过 hash 区分页面。

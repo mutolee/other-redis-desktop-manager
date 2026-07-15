@@ -3,29 +3,52 @@
  * 负责把 Redis 扫描得到的扁平 Key 列表转换为树形节点，并提供树形展开与祖先判断能力。
  */
 
+// 空白层级展示文案：用于 user::age 这类 Key 在树形模式下明确呈现空父节点。
+const EMPTY_TREE_PART_LABEL = '[empty]'
+
+/**
+ * 格式化树节点层级名称。
+ * @param {string} part 当前 Key 分段
+ * @returns {string} 可展示的层级名称
+ */
+const formatTreePartLabel = (part) => part === '' ? EMPTY_TREE_PART_LABEL : part
+
+/**
+ * 归一化 Key 分隔符。
+ * @param {string} keySeparator 连接配置中的 key_split
+ * @returns {string} 可用于 split/join 的分隔符
+ */
+export const normalizeKeySeparator = (keySeparator = ':') => {
+    const normalizedSeparator = String(keySeparator || '').trim()
+
+    return normalizedSeparator || ':'
+}
+
 /**
  * 构建树形节点映射。
  * 超过最大层级的 Key 会把剩余部分合并到最后一层节点中，避免树结构无限变深。
  * @param {Array<{key: string, type: string}>} flatKeys 扁平 Key 列表
  * @param {number} maxTreeDepth 树形最大展示层级
+ * @param {string} keySeparator Key 层级分隔符
  * @returns {Map<string, Object>} 树形节点映射
  */
-export const buildKeyTreeMap = (flatKeys, maxTreeDepth = 4) => {
+export const buildKeyTreeMap = (flatKeys, maxTreeDepth = 4, keySeparator = ':') => {
     const treeMap = new Map()
+    const separator = normalizeKeySeparator(keySeparator)
 
     for (const keyData of flatKeys) {
-        // 先按冒号拆分 Key，再根据最大层级决定是否合并尾部片段。
-        const rawParts = keyData.key.split(':')
+        // 先按当前连接的 key_split 拆分 Key，再根据最大层级决定是否合并尾部片段。
+        const rawParts = keyData.key.split(separator)
         const parts = rawParts.length > maxTreeDepth
             ? [
                 ...rawParts.slice(0, maxTreeDepth - 1),
-                rawParts.slice(maxTreeDepth - 1).join(':')
+                rawParts.slice(maxTreeDepth - 1).join(separator)
             ]
             : rawParts
 
         for (let index = 0; index < parts.length; index += 1) {
-            const nodeKey = parts.slice(0, index + 1).join(':')
-            const parentPath = index > 0 ? parts.slice(0, index).join(':') : null
+            const nodeKey = parts.slice(0, index + 1).join(separator)
+            const parentPath = index > 0 ? parts.slice(0, index).join(separator) : null
             const isDirectory = index < parts.length - 1
             // 目录节点和真实 Key 节点必须使用不同 nodeId，避免 user:lynn 和 user:lynn:age 的目录前缀冲突。
             const nodeId = isDirectory ? `dir:${nodeKey}` : `key:${keyData.key}`
@@ -37,7 +60,7 @@ export const buildKeyTreeMap = (flatKeys, maxTreeDepth = 4) => {
                     key: nodeKey,
                     parentKey,
                     depth: index,
-                    displayKey: parts[index],
+                    displayKey: formatTreePartLabel(parts[index]),
                     isDirectory,
                     type: isDirectory ? '' : keyData.type,
                     keyCount: isDirectory ? 0 : 1
@@ -146,12 +169,13 @@ export const filterTreeRowsWithAncestors = (rows, keyword, isExactSearch = false
  * 判断目录节点是否为当前选中 Key 的祖先节点。
  * @param {Object} row 当前目录节点
  * @param {string} activeKey 当前选中的完整 Key
+ * @param {string} keySeparator Key 层级分隔符
  * @returns {boolean} 是否为祖先目录
  */
-export const isAncestorDirectoryKey = (row, activeKey) => {
+export const isAncestorDirectoryKey = (row, activeKey, keySeparator = ':') => {
     if (!row?.isDirectory || !activeKey) {
         return false
     }
 
-    return activeKey.startsWith(`${row.key}:`)
+    return activeKey.startsWith(`${row.key}${normalizeKeySeparator(keySeparator)}`)
 }

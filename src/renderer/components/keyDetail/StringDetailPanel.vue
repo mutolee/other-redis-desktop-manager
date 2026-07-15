@@ -13,7 +13,9 @@
                 type="primary"
                 @click="handleEditString"
             >
-                <el-icon><Edit /></el-icon>
+                <el-icon>
+                    <Edit/>
+                </el-icon>
                 {{ t('keyDetailPanels.common.edit') }}
             </el-button>
 
@@ -23,14 +25,18 @@
                     :loading="saving"
                     @click="handleSaveString"
                 >
-                    <el-icon><Check /></el-icon>
+                    <el-icon>
+                        <Check/>
+                    </el-icon>
                     {{ t('keyDetailPanels.common.save') }}
                 </el-button>
                 <el-button
                     :disabled="saving"
                     @click="handleCancelEditString"
                 >
-                    <el-icon><Close /></el-icon>
+                    <el-icon>
+                        <Close/>
+                    </el-icon>
                     {{ t('common.cancel') }}
                 </el-button>
             </template>
@@ -50,13 +56,13 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Check, Close, Edit } from '@icon-park/vue-next'
-import { useI18n } from '../../i18n/index.js'
+import {ref, watch} from 'vue'
+import {ElMessage} from 'element-plus'
+import {Check, Close, Edit} from '@icon-park/vue-next'
+import {useI18n} from '../../i18n/index.js'
 
 // 国际化文案读取函数：驱动 String 编辑按钮和保存反馈文案。
-const { t } = useI18n()
+const {t} = useI18n()
 
 // 组件入参：tabId 用于定位当前 Redis 连接，keyData 是父组件读取到的 String Key 详情。
 const props = defineProps({
@@ -148,7 +154,7 @@ watch(
         isEditingString.value = false
         saving.value = false
     },
-    { immediate: true }
+    {immediate: true}
 )
 </script>
 

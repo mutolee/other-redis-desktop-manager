@@ -5,12 +5,12 @@
 import electron from 'electron'
 import fs from 'fs'
 import path from 'path'
-import { createLogger } from '../../utils/logger.js'
-import { setMainLanguage, tMain } from '../../utils/mainI18n.js'
-import { compareVersions, normalizeVersion } from '../../utils/versionUtil.js'
-import { refreshTrayMenuLanguage } from '../../managers/TrayManager.js'
+import {createLogger} from '../../utils/logger.js'
+import {setMainLanguage, tMain} from '../../utils/mainI18n.js'
+import {compareVersions, normalizeVersion} from '../../utils/versionUtil.js'
+import {refreshTrayMenuLanguage} from '../../managers/TrayManager.js'
 
-const { ipcMain } = electron
+const {ipcMain} = electron
 const log = createLogger('app-info-ipc')
 
 // 版本读取失败时的兜底值，避免启动页因为 package.json 读取异常而中断。
@@ -88,7 +88,7 @@ const checkForUpdates = async () => {
         })
 
         if (!response.ok) {
-            throw new Error(tMain('appInfo.updateRequestFail', { value: response.status }))
+            throw new Error(tMain('appInfo.updateRequestFail', {value: response.status}))
         }
 
         const release = await response.json()
@@ -122,7 +122,7 @@ const checkForUpdates = async () => {
             : (error.message || tMain('appInfo.updateCheckFail'))
 
         log.warn(message)
-        return { success: false, error: message }
+        return {success: false, error: message}
     } finally {
         clearTimeout(timeout)
     }
@@ -141,7 +141,7 @@ const syncMainLanguage = (event, language) => {
     // 托盘菜单属于 main 进程原生菜单，语言变化后需要主动重建菜单。
     refreshTrayMenuLanguage()
 
-    return { success: true, language: nextLanguage }
+    return {success: true, language: nextLanguage}
 }
 
 // 应用信息 IPC 通道注册表：集中维护通道名，避免分散的 ipcMain.handle 难以核对。
@@ -172,7 +172,7 @@ const APP_INFO_IPC_HANDLERS = [
  * 注册应用信息相关 IPC 处理器。
  */
 export default () => {
-    for (const { channel, description, handler } of APP_INFO_IPC_HANDLERS) {
+    for (const {channel, description, handler} of APP_INFO_IPC_HANDLERS) {
         ipcMain.handle(channel, handler)
         log.info(`应用信息 IPC 已注册: ${channel} - ${description}`)
     }

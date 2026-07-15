@@ -1,6 +1,6 @@
-import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import { getSystemDefaultLanguage, isSupportedLanguage } from '../../utils/languageUtil.js'
+import {defineStore} from 'pinia'
+import {ref} from 'vue'
+import {getSystemDefaultLanguage, isSupportedLanguage} from '../../utils/languageUtil.js'
 
 // 主题枚举：当前只支持浅色和暗色两种根 class。
 const THEME_CLASS_NAMES = ['dark', 'light']
@@ -28,7 +28,7 @@ const DEFAULT_CLOSE_MANAGEMENT = {
  * @param {Object} value - 默认配置对象
  * @returns {Object} 新配置对象
  */
-const cloneDefaults = (value) => ({ ...value })
+const cloneDefaults = (value) => ({...value})
 
 /**
  * 替换 documentElement 上的一组 class。

@@ -2,6 +2,77 @@
     TitleBar.vue
     描述：应用窗口标题栏，负责展示应用标识、窗口控制按钮、主题切换入口和设置入口。
  -->
+<template>
+    <!-- 标题栏主容器：左侧应用信息，中间拖拽区，右侧窗口控制区。 -->
+    <div class="title-bar">
+        <!-- 应用标识区：展示 Logo 和产品名称。 -->
+        <div class="icon-container">
+            <div class="icon">
+                <img src="../assets/logo.png" alt=""/>
+            </div>
+            <span class="title">Other Redis Desktop Manager</span>
+        </div>
+
+        <!-- Electron 窗口拖拽区域：占据标题栏剩余空间。 -->
+        <div class="drag-container"></div>
+
+        <!-- 标题栏控制区：设置、刷新、主题切换和窗口控制按钮。 -->
+        <div class="control-container">
+            <el-tooltip :content="t('titleBar.settings')" placement="bottom" :show-after="200" :offset="6">
+                <button class="ctrl ctrl-settings" @click="openSetting">
+                    <span class="chip">
+                        <el-icon size="18">
+                            <SettingTwo/>
+                        </el-icon>
+                    </span>
+                </button>
+            </el-tooltip>
+            <el-tooltip :content="t('titleBar.reload')" placement="bottom" :show-after="200" :offset="6">
+                <button class="ctrl" @click="onReload">
+                    <el-icon size="18">
+                        <Refresh/>
+                    </el-icon>
+                </button>
+            </el-tooltip>
+            <el-tooltip :content="isDarkMode ? t('titleBar.switchToLight') : t('titleBar.switchToDark')" placement="bottom" :show-after="200"
+                        :offset="6">
+                <button class="ctrl" @click="handleThemeToggle">
+                    <el-icon size="18">
+                        <Moon v-if="isDarkMode"/>
+                        <SunOne v-else/>
+                    </el-icon>
+                </button>
+            </el-tooltip>
+            <el-tooltip :content="t('titleBar.minimize')" placement="bottom" :show-after="200" :offset="6">
+                <button class="ctrl" @click="onMinimize">
+                    <el-icon size="18">
+                        <Minus/>
+                    </el-icon>
+                </button>
+            </el-tooltip>
+            <el-tooltip :content="t('titleBar.maximizeRestore')" placement="bottom" :show-after="200" :offset="6">
+                <button class="ctrl" @click="onToggleMax">
+                    <el-icon size="18">
+                        <FullScreen/>
+                    </el-icon>
+                </button>
+            </el-tooltip>
+            <el-tooltip :content="t('titleBar.close')" placement="bottom" :show-after="200" :offset="6">
+                <button class="ctrl ctrl-close" @click="onClose">
+                    <el-icon size="18">
+                        <Close/>
+                    </el-icon>
+                </button>
+            </el-tooltip>
+        </div>
+    </div>
+
+    <!-- 关闭确认对话框 -->
+    <CloseConfirmDialog v-if="closeConfirmDialogVisible" v-model:visible="closeConfirmDialogVisible"/>
+    <!-- 设置抽屉 -->
+    <SettingsDrawer v-model:visible="showSettingsDrawerVisible"/>
+</template>
+
 <script setup>
 import {Close, FullScreen, Minus, Moon, Refresh, SettingTwo, SunOne} from '@icon-park/vue-next';
 import {computed, onBeforeUnmount, onMounted, ref} from "vue";
@@ -109,77 +180,6 @@ const openSetting = () => {
     showSettingsDrawerVisible.value = true
 }
 </script>
-
-<template>
-    <!-- 标题栏主容器：左侧应用信息，中间拖拽区，右侧窗口控制区。 -->
-    <div class="title-bar">
-        <!-- 应用标识区：展示 Logo 和产品名称。 -->
-        <div class="icon-container">
-            <div class="icon">
-                <img src="../assets/logo.png" alt=""/>
-            </div>
-            <span class="title">Other Redis Desktop Manager</span>
-        </div>
-
-        <!-- Electron 窗口拖拽区域：占据标题栏剩余空间。 -->
-        <div class="drag-container"></div>
-
-        <!-- 标题栏控制区：设置、刷新、主题切换和窗口控制按钮。 -->
-        <div class="control-container">
-            <el-tooltip :content="t('titleBar.settings')" placement="bottom" :show-after="200" :offset="6">
-                <button class="ctrl ctrl-settings" @click="openSetting">
-                    <span class="chip">
-                        <el-icon size="18">
-                            <SettingTwo/>
-                        </el-icon>
-                    </span>
-                </button>
-            </el-tooltip>
-            <el-tooltip :content="t('titleBar.reload')" placement="bottom" :show-after="200" :offset="6">
-                <button class="ctrl" @click="onReload">
-                    <el-icon size="18">
-                        <Refresh/>
-                    </el-icon>
-                </button>
-            </el-tooltip>
-            <el-tooltip :content="isDarkMode ? t('titleBar.switchToLight') : t('titleBar.switchToDark')" placement="bottom" :show-after="200"
-                :offset="6">
-                <button class="ctrl" @click="handleThemeToggle">
-                    <el-icon size="18">
-                        <Moon v-if="isDarkMode"/>
-                        <SunOne v-else/>
-                    </el-icon>
-                </button>
-            </el-tooltip>
-            <el-tooltip :content="t('titleBar.minimize')" placement="bottom" :show-after="200" :offset="6">
-                <button class="ctrl" @click="onMinimize">
-                    <el-icon size="18">
-                        <Minus/>
-                    </el-icon>
-                </button>
-            </el-tooltip>
-            <el-tooltip :content="t('titleBar.maximizeRestore')" placement="bottom" :show-after="200" :offset="6">
-                <button class="ctrl" @click="onToggleMax">
-                    <el-icon size="18">
-                        <FullScreen/>
-                    </el-icon>
-                </button>
-            </el-tooltip>
-            <el-tooltip :content="t('titleBar.close')" placement="bottom" :show-after="200" :offset="6">
-                <button class="ctrl ctrl-close" @click="onClose">
-                    <el-icon size="18">
-                        <Close/>
-                    </el-icon>
-                </button>
-            </el-tooltip>
-        </div>
-    </div>
-
-    <!-- 关闭确认对话框 -->
-    <CloseConfirmDialog v-if="closeConfirmDialogVisible" v-model:visible="closeConfirmDialogVisible"/>
-    <!-- 设置抽屉 -->
-    <SettingsDrawer v-model:visible="showSettingsDrawerVisible"/>
-</template>
 
 <style scoped>
 /* 标题栏整体布局：横向分布，并使用主题色渐变增强窗口顶部识别度。 */
