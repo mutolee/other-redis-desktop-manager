@@ -134,6 +134,21 @@ npm run pack
 npm run dist:win
 ```
 
+在 Mac 电脑上生成 macOS 安装包：
+
+```bash
+CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac
+```
+
+分别生成 Apple Silicon 或 Intel 安装包：
+
+```bash
+CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac:arm64
+CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac:x64
+```
+
+`CSC_IDENTITY_AUTO_DISCOVERY=false` 只对当前这次打包命令生效，用于禁止 electron-builder 自动扫描本机钥匙串证书。本项目可以在没有 Apple Developer 账号的情况下打包 macOS 版本，但用户从 GitHub 下载后，macOS Gatekeeper 仍可能弹出安全提示。
+
 产物会输出到：
 
 ```text
@@ -150,6 +165,12 @@ release/Other Redis Desktop Manager-Portable-1.0.2-x64.exe
 - `Setup`：NSIS 安装包，需要安装后使用。
 - `Portable`：便携版，可以直接运行。
 - `.blockmap`：electron-builder 生成的增量更新元数据文件，不是给用户直接运行的程序。
+
+macOS 分发建议：
+
+- GitHub Release 中优先上传生成的 `.zip` 包，`.dmg` 可以作为备选一起上传。
+- 如果 macOS 提示“无法验证开发者”，打开“系统设置 → 隐私与安全性”，点击“仍要打开”。
+- 如果想完全无弹窗启动，需要 Apple Developer ID 签名并完成 notarization 公证。
 
 ## 仓库
 
