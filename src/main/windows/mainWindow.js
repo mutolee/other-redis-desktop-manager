@@ -8,20 +8,10 @@ import {attachRendererDiagnostics, createSecureWebPreferences, loadRendererRoute
 const {app, BrowserWindow, screen} = electron
 
 const DEFAULT_WINDOW_RATIO = 0.75
-const COMPACT_MAC_WINDOW_RATIO = 0.68
-const COMPACT_MAC_MAX_WORK_AREA_HEIGHT = 950
 const DEFAULT_MIN_WINDOW_SIZE = {
     width: 1024,
     height: 768
 }
-const COMPACT_MAC_MIN_WINDOW_SIZE = {
-    width: 900,
-    height: 640
-}
-
-const isCompactMacScreen = (screenHeight) => process.platform === 'darwin' && screenHeight <= COMPACT_MAC_MAX_WORK_AREA_HEIGHT
-const getWindowRatio = (screenHeight) => isCompactMacScreen(screenHeight) ? COMPACT_MAC_WINDOW_RATIO : DEFAULT_WINDOW_RATIO
-const getMinimumWindowSize = (screenHeight) => isCompactMacScreen(screenHeight) ? COMPACT_MAC_MIN_WINDOW_SIZE : DEFAULT_MIN_WINDOW_SIZE
 
 /**
  * 根据主屏幕工作区计算主窗口初始尺寸。
@@ -31,12 +21,10 @@ const getMinimumWindowSize = (screenHeight) => isCompactMacScreen(screenHeight) 
  */
 const getInitialWindowSize = () => {
     const {width: screenWidth, height: screenHeight} = screen.getPrimaryDisplay().workAreaSize
-    const ratio = getWindowRatio(screenHeight)
-    const minWindowSize = getMinimumWindowSize(screenHeight)
 
     return {
-        width: Math.max(minWindowSize.width, Math.floor(screenWidth * ratio)),
-        height: Math.max(minWindowSize.height, Math.floor(screenHeight * ratio))
+        width: Math.max(DEFAULT_MIN_WINDOW_SIZE.width, Math.floor(screenWidth * DEFAULT_WINDOW_RATIO)),
+        height: Math.max(DEFAULT_MIN_WINDOW_SIZE.height, Math.floor(screenHeight * DEFAULT_WINDOW_RATIO))
     }
 }
 
@@ -57,14 +45,12 @@ class MainWindow {
      */
     createWindow() {
         const {width, height} = getInitialWindowSize()
-        const {height: screenHeight} = screen.getPrimaryDisplay().workAreaSize
-        const {width: minWidth, height: minHeight} = getMinimumWindowSize(screenHeight)
 
         this.win = new BrowserWindow({
             width,
             height,
-            minWidth,
-            minHeight,
+            minWidth: DEFAULT_MIN_WINDOW_SIZE.width,
+            minHeight: DEFAULT_MIN_WINDOW_SIZE.height,
             autoHideMenuBar: true,
             frame: false,
             center: true,
@@ -72,6 +58,10 @@ class MainWindow {
         })
 
         // 渲染诊断：生产环境白屏时输出 loadFile 和 renderer 控制台错误，便于 macOS 打包排查。
+        if (process.platform === 'darwin') {
+            this.win.webContents.setZoomFactor(0.9)
+        }
+
         attachRendererDiagnostics(this.win)
 
         // 主窗口关闭后释放单例引用，方便后续需要时重新创建窗口。
