@@ -161,17 +161,17 @@ npm run dist:win
 Build macOS packages on a Mac:
 
 ```bash
-CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac
+npm run dist:mac
 ```
 
 Build Apple Silicon or Intel packages separately:
 
 ```bash
-CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac:arm64
-CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac:x64
+npm run dist:mac:arm64
+npm run dist:mac:x64
 ```
 
-`CSC_IDENTITY_AUTO_DISCOVERY=false` disables automatic certificate discovery for this build command. This project can be packaged without an Apple Developer account, but macOS Gatekeeper may still show a security prompt after users download the app from GitHub.
+The macOS package uses ad-hoc signing through electron-builder. It can be built without an Apple Developer account, but macOS Gatekeeper may still show a security prompt after users download the app from GitHub.
 
 Artifacts are generated in:
 

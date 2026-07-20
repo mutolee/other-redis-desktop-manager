@@ -137,17 +137,17 @@ npm run dist:win
 在 Mac 电脑上生成 macOS 安装包：
 
 ```bash
-CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac
+npm run dist:mac
 ```
 
 分别生成 Apple Silicon 或 Intel 安装包：
 
 ```bash
-CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac:arm64
-CSC_IDENTITY_AUTO_DISCOVERY=false npm run dist:mac:x64
+npm run dist:mac:arm64
+npm run dist:mac:x64
 ```
 
-`CSC_IDENTITY_AUTO_DISCOVERY=false` 只对当前这次打包命令生效，用于禁止 electron-builder 自动扫描本机钥匙串证书。本项目可以在没有 Apple Developer 账号的情况下打包 macOS 版本，但用户从 GitHub 下载后，macOS Gatekeeper 仍可能弹出安全提示。
+macOS 安装包通过 electron-builder 使用 ad-hoc 签名生成，不需要 Apple Developer 账号，但用户从 GitHub 下载后，macOS Gatekeeper 仍可能弹出安全提示。
 
 产物会输出到：
 

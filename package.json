@@ -95,13 +95,19 @@
     },
     "mac": {
       "icon": "assets/icons/logo.icns",
-      "identity": null,
+      "identity": "-",
       "hardenedRuntime": false,
+      "gatekeeperAssess": false,
       "target": [
         "dmg",
         "zip"
       ],
       "category": "public.app-category.developer-tools",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "sign": false,
+      "title": "${productName} ${version}",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "linux": {
