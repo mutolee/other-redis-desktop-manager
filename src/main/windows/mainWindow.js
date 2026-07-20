@@ -7,6 +7,22 @@ import {attachRendererDiagnostics, createSecureWebPreferences, loadRendererRoute
 
 const {app, BrowserWindow, screen} = electron
 
+const DEFAULT_WINDOW_RATIO = 0.75
+const COMPACT_MAC_WINDOW_RATIO = 0.68
+const COMPACT_MAC_MAX_WORK_AREA_HEIGHT = 950
+const DEFAULT_MIN_WINDOW_SIZE = {
+    width: 1024,
+    height: 768
+}
+const COMPACT_MAC_MIN_WINDOW_SIZE = {
+    width: 900,
+    height: 640
+}
+
+const isCompactMacScreen = (screenHeight) => process.platform === 'darwin' && screenHeight <= COMPACT_MAC_MAX_WORK_AREA_HEIGHT
+const getWindowRatio = (screenHeight) => isCompactMacScreen(screenHeight) ? COMPACT_MAC_WINDOW_RATIO : DEFAULT_WINDOW_RATIO
+const getMinimumWindowSize = (screenHeight) => isCompactMacScreen(screenHeight) ? COMPACT_MAC_MIN_WINDOW_SIZE : DEFAULT_MIN_WINDOW_SIZE
+
 /**
  * 根据主屏幕工作区计算主窗口初始尺寸。
  * 这里使用可用工作区的 75%，避免窗口首次打开时压住系统任务栏或过度占满屏幕。
@@ -15,10 +31,12 @@ const {app, BrowserWindow, screen} = electron
  */
 const getInitialWindowSize = () => {
     const {width: screenWidth, height: screenHeight} = screen.getPrimaryDisplay().workAreaSize
+    const ratio = getWindowRatio(screenHeight)
+    const minWindowSize = getMinimumWindowSize(screenHeight)
 
     return {
-        width: Math.floor(screenWidth * 0.75),
-        height: Math.floor(screenHeight * 0.75)
+        width: Math.max(minWindowSize.width, Math.floor(screenWidth * ratio)),
+        height: Math.max(minWindowSize.height, Math.floor(screenHeight * ratio))
     }
 }
 
@@ -39,12 +57,14 @@ class MainWindow {
      */
     createWindow() {
         const {width, height} = getInitialWindowSize()
+        const {height: screenHeight} = screen.getPrimaryDisplay().workAreaSize
+        const {width: minWidth, height: minHeight} = getMinimumWindowSize(screenHeight)
 
         this.win = new BrowserWindow({
             width,
             height,
-            minWidth: 1024,
-            minHeight: 768,
+            minWidth,
+            minHeight,
             autoHideMenuBar: true,
             frame: false,
             center: true,
