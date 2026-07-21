@@ -160,12 +160,27 @@
             </template>
 
             <div class="field-viewer">
-                <div class="viewer-field">
-                    <span class="viewer-label">{{ t('keyDetailPanels.common.labels.field') }}:</span>
-                    <span class="viewer-field-name">{{ viewingField?.field }}</span>
+                <div class="viewer-toolbar">
+                    <div class="viewer-field">
+                        <span class="viewer-label">{{ t('keyDetailPanels.common.labels.field') }}:</span>
+                        <span class="viewer-field-name">{{ viewingField?.field }}</span>
+                    </div>
+
+                    <div class="viewer-format-control">
+                        <span class="viewer-label">{{ t('valueFormats.label') }}</span>
+                        <ValueFormatSelect v-model="selectedValueFormat"/>
+                    </div>
                 </div>
 
-                <ViewerTextarea :model-value="viewingField?.value || ''" :height="180"/>
+                <el-alert
+                    v-if="viewingFieldFormatWarning"
+                    :title="viewingFieldFormatWarning"
+                    type="warning"
+                    show-icon
+                    :closable="false"
+                />
+
+                <ViewerTextarea :model-value="viewingFieldDisplayValue" :height="180"/>
             </div>
 
             <template #footer>
@@ -187,8 +202,10 @@ import {Copy as DocumentCopy, Delete, Edit, Plus, PreviewOpen as View, Search} f
 import DialogTitle from '../common/DialogTitle.vue'
 import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
+import ValueFormatSelect from '../common/ValueFormatSelect.vue'
 import DetailLoadFooter from './common/DetailLoadFooter.vue'
 import {useI18n} from '../../i18n/index.js'
+import {DEFAULT_VALUE_FORMAT_TYPE, formatValueForDisplay} from '../../utils/valueFormatters/index.js'
 
 // 国际化文案读取函数：驱动 Hash 表格、弹窗和操作反馈文案。
 const {t} = useI18n()
@@ -239,6 +256,9 @@ const fieldForm = reactive({
 // 当前查看中的字段行：用于查看弹窗展示完整内容。
 const viewingField = ref(null)
 
+// 当前查看弹窗的 value 展示格式：只影响预览和复制内容，不参与 Hash 写入。
+const selectedValueFormat = ref(DEFAULT_VALUE_FORMAT_TYPE)
+
 // 保存字段状态：控制新增/编辑确认按钮 loading 和重复提交保护。
 const savingField = ref(false)
 
@@ -268,8 +288,28 @@ const canSubmitField = computed(() => Boolean(fieldForm.field.trim()) && !saving
 // Hash 表格数据：把 Redis 返回字段转换为表格可以直接消费的行结构。
 const rows = computed(() => loadedFields.value.map((item) => ({
     field: String(item?.field ?? ''),
-    value: String(item?.value ?? '')
+    value: String(item?.value ?? ''),
+    valueRawBase64: typeof item?.valueRawBase64 === 'string' ? item.valueRawBase64 : ''
 })))
+
+// 当前查看字段的解析结果：优先使用 main 进程返回的原始字节，保证二进制格式解析准确。
+const viewingFieldFormatResult = computed(() => formatValueForDisplay(
+    viewingField.value?.value,
+    selectedValueFormat.value,
+    {rawBase64: viewingField.value?.valueRawBase64}
+))
+
+// 查看弹窗 textarea 内容：展示当前格式解析后的文本，解析失败时 formatter 会保留原始内容。
+const viewingFieldDisplayValue = computed(() => viewingFieldFormatResult.value.text)
+
+// 查看弹窗解析失败提示：沿用 String 详情页的统一提示文案。
+const viewingFieldFormatWarning = computed(() => {
+    if (viewingFieldFormatResult.value.success) {
+        return ''
+    }
+
+    return t('valueFormats.messages.parseFail', {value: viewingFieldFormatResult.value.error})
+})
 
 // 过滤后的表格数据：搜索框为空时展示全部，输入后按 Field 或 Value 做不区分大小写匹配。
 const filteredRows = computed(() => {
@@ -466,8 +506,8 @@ const handleCopyFieldCommand = async (row) => {
  */
 const handleCopyViewingField = async () => {
     try {
-        // 查看弹窗复制的是当前展示内容，不是表格里的 HSET 命令。
-        await navigator.clipboard.writeText(viewingField.value?.value || '')
+        // 查看弹窗复制当前解析后的展示内容，不是表格里的 HSET 命令。
+        await navigator.clipboard.writeText(viewingFieldDisplayValue.value)
         ElMessage.success(t('keyDetailPanels.common.messages.contentCopied'))
     } catch (error) {
         ElMessage.error(error.message || t('keyDetailPanels.common.messages.copyContentFail'))
@@ -480,6 +520,7 @@ const handleCopyViewingField = async () => {
  */
 const handleViewField = (row) => {
     viewingField.value = row
+    selectedValueFormat.value = DEFAULT_VALUE_FORMAT_TYPE
     fieldViewerVisible.value = true
 }
 
@@ -807,20 +848,37 @@ html.dark .field-tag {
     margin-left: 0;
 }
 
-/* 查看弹窗主体：Field 名称和 Value 上下排列，给长内容留出呼吸感。 */
+/* 查看弹窗主体：工具栏、解析提示和 Value 上下排列。 */
 .field-viewer {
     display: flex;
     flex-direction: column;
     gap: 12px;
 }
 
+/* 查看弹窗工具栏：左侧展示 Field，右侧切换 value 解析格式。 */
+.viewer-toolbar {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
 /* 查看弹窗 Field 行：单行展示字段名，过长时省略。 */
 .viewer-field {
     display: flex;
     min-width: 0;
+    flex: 1;
     align-items: center;
     gap: 8px;
     color: var(--el-text-color-regular);
+}
+
+.viewer-format-control {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 8px;
 }
 
 .viewer-label {

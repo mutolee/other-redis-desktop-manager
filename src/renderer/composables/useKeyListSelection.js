@@ -37,6 +37,15 @@ export const useKeyListSelection = (options) => {
     // 当前批量删除选中数量：只统计真实 Key，不包含目录节点。
     const selectedBatchDeleteCount = computed(() => selectedBatchDeleteKeys.value.size)
 
+    // 当前已加载的真实 Key 数量：用于判断全选按钮应该展示“全选”还是“取消全选”。
+    const loadedSelectableKeyCount = computed(() => getLoadedKeyNames(allScannedKeys.value).length)
+    const isAllExportKeysSelected = computed(() =>
+        loadedSelectableKeyCount.value > 0 && selectedExportKeys.value.size >= loadedSelectableKeyCount.value
+    )
+    const isAllBatchDeleteKeysSelected = computed(() =>
+        loadedSelectableKeyCount.value > 0 && selectedBatchDeleteKeys.value.size >= loadedSelectableKeyCount.value
+    )
+
     // 当前是否处于列表选择模式：导出和批量删除都会让行左侧展示 checkbox。
     const isSelectionMode = computed(() => exportSelectionMode.value || batchDeleteSelectionMode.value)
 
@@ -228,6 +237,8 @@ export const useKeyListSelection = (options) => {
         selectedBatchDeleteKeys,
         selectedExportCount,
         selectedBatchDeleteCount,
+        isAllExportKeysSelected,
+        isAllBatchDeleteKeysSelected,
         isSelectionMode,
         isRowSelectionChecked,
         isRowSelectionIndeterminate,

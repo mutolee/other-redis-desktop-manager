@@ -24,11 +24,15 @@
                 <span>{{ t('settings.update.latestVersion') }}: V{{ updateInfo?.latestVersion }}</span>
             </div>
 
-            <!-- 更新内容：body 内部滚动，Dialog header/footer 保持 Element Plus 原始样式。 -->
-            <el-scrollbar class="update-notes-scrollbar">
-                <div class="update-notes-title">{{ t('settings.update.releaseNotesTitle') }}</div>
-                <div class="update-notes-markdown" v-html="releaseNotesHtml"></div>
-            </el-scrollbar>
+            <!-- 更新内容：外层面板负责背景区分，el-scrollbar 只负责滚动，避免滚动条轨道被 padding 截短。 -->
+            <div class="update-notes-panel">
+                <el-scrollbar class="update-notes-scrollbar">
+                    <div class="update-notes-content">
+                        <div class="update-notes-title">{{ t('settings.update.releaseNotesTitle') }}</div>
+                        <div class="update-notes-markdown" v-html="releaseNotesHtml"></div>
+                    </div>
+                </el-scrollbar>
+            </div>
         </div>
 
         <template #footer>
@@ -147,10 +151,29 @@ const handleOpenReleasePage = async () => {
     font-size: 13px;
 }
 
-/* 更新内容：Dialog body 内唯一滚动区，右侧保留一点阅读空隙。 */
-.update-notes-scrollbar {
+/* 更新内容面板：通过轻微背景差异区分正文，不改变 Element Plus Dialog 的 header/footer 风格。 */
+.update-notes-panel {
     flex: 1;
     min-height: 0;
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 6px;
+    background: var(--el-fill-color-light);
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+html.dark .update-notes-panel {
+    border-color: #2d2d2d;
+    background: #161616;
+}
+
+/* 更新内容滚动区：滚动条占满面板高度，避免轨道上下被 padding 截断。 */
+.update-notes-scrollbar {
+    height: 100%;
+}
+
+.update-notes-content {
+    padding: 12px 14px;
 }
 
 .update-notes-title {

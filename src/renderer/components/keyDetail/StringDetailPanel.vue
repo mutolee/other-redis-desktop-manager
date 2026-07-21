@@ -6,60 +6,80 @@
 <template>
     <!-- String 主体区域：工具栏固定在顶部，文本内容区域占满剩余高度。 -->
     <div class="string-viewer">
-        <!-- String 工具栏：根据编辑状态切换编辑/保存/取消操作。 -->
+        <!-- String 工具栏：左侧控制编辑状态，右侧在预览模式切换 value 展示格式。 -->
         <div class="string-toolbar">
-            <el-button
-                v-if="!isEditingString"
-                type="primary"
-                @click="handleEditString"
-            >
-                <el-icon>
-                    <Edit/>
-                </el-icon>
-                {{ t('keyDetailPanels.common.edit') }}
-            </el-button>
+            <div class="string-toolbar-actions">
+                <el-button
+                    v-if="!isEditingString"
+                    type="primary"
+                    @click="handleEditString"
+                >
+                    <el-icon>
+                        <Edit/>
+                    </el-icon>
+                    {{ t('keyDetailPanels.common.edit') }}
+                </el-button>
 
-            <template v-else>
-                <el-button
-                    type="success"
-                    :loading="saving"
-                    @click="handleSaveString"
-                >
-                    <el-icon>
-                        <Check/>
-                    </el-icon>
-                    {{ t('keyDetailPanels.common.save') }}
-                </el-button>
-                <el-button
-                    :disabled="saving"
-                    @click="handleCancelEditString"
-                >
-                    <el-icon>
-                        <Close/>
-                    </el-icon>
-                    {{ t('common.cancel') }}
-                </el-button>
-            </template>
+                <template v-else>
+                    <el-button
+                        type="success"
+                        :loading="saving"
+                        @click="handleSaveString"
+                    >
+                        <el-icon>
+                            <Check/>
+                        </el-icon>
+                        {{ t('keyDetailPanels.common.save') }}
+                    </el-button>
+                    <el-button
+                        :disabled="saving"
+                        @click="handleCancelEditString"
+                    >
+                        <el-icon>
+                            <Close/>
+                        </el-icon>
+                        {{ t('common.cancel') }}
+                    </el-button>
+                </template>
+            </div>
+
+            <div v-if="!isEditingString" class="string-format-control">
+                <span class="format-label">{{ t('valueFormats.label') }}</span>
+                <ValueFormatSelect v-model="selectedValueFormat"/>
+            </div>
         </div>
+
+        <!-- String 解析提示：解析失败时保留原始 value 展示，并提示用户当前格式不匹配。 -->
+        <el-alert
+            v-if="formatWarningMessage"
+            class="format-warning"
+            :title="formatWarningMessage"
+            type="warning"
+            show-icon
+            :closable="false"
+        />
 
         <!-- String 内容区：继续使用 textarea，滚动条样式由全局样式统一接管。 -->
         <div class="value-container">
             <el-input
-                v-model="stringValue"
+                :model-value="currentTextareaValue"
                 type="textarea"
                 :readonly="!isEditingString"
                 :disabled="saving"
                 class="value-textarea"
+                @update:model-value="handleStringValueInput"
             />
         </div>
     </div>
 </template>
 
 <script setup>
-import {ref, watch} from 'vue'
+import {computed, ref, watch} from 'vue'
 import {ElMessage} from 'element-plus'
 import {Check, Close, Edit} from '@icon-park/vue-next'
 import {useI18n} from '../../i18n/index.js'
+import ValueFormatSelect from '../common/ValueFormatSelect.vue'
+import {DEFAULT_VALUE_FORMAT_TYPE, formatValueForDisplay} from '../../utils/valueFormatters/index.js'
 
 // 国际化文案读取函数：驱动 String 编辑按钮和保存反馈文案。
 const {t} = useI18n()
@@ -88,6 +108,30 @@ const saving = ref(false)
 // String 编辑值：与 textarea 双向绑定，进入编辑时基于当前 keyData.value 初始化。
 const stringValue = ref('')
 
+// 当前预览展示格式：只影响只读预览，不参与编辑和保存序列化。
+const selectedValueFormat = ref(DEFAULT_VALUE_FORMAT_TYPE)
+
+// 预览解析结果：在非编辑模式下按用户选择的格式展示 String value。
+const formattedValueResult = computed(() => formatValueForDisplay(
+    props.keyData?.value,
+    selectedValueFormat.value,
+    {rawBase64: props.keyData?.valueRawBase64}
+))
+
+// textarea 当前展示值：编辑时始终使用原始值，预览时使用解析后的展示文本。
+const currentTextareaValue = computed(() => (
+    isEditingString.value ? stringValue.value : formattedValueResult.value.text
+))
+
+// 解析失败提示：格式不匹配时不阻塞查看，textarea 中仍展示原始 value。
+const formatWarningMessage = computed(() => {
+    if (isEditingString.value || formattedValueResult.value.success) {
+        return ''
+    }
+
+    return t('valueFormats.messages.parseFail', {value: formattedValueResult.value.error})
+})
+
 /**
  * 将后端返回值规整为 textarea 可展示的字符串。
  * @param {unknown} value Redis String 原始值
@@ -114,6 +158,18 @@ const handleCancelEditString = () => {
 }
 
 /**
+ * 处理 textarea 输入。
+ * 只有编辑模式允许写入原始 String 值，预览模式的格式化内容不回写到编辑状态。
+ *
+ * @param {string} value textarea 最新输入值
+ */
+const handleStringValueInput = (value) => {
+    if (isEditingString.value) {
+        stringValue.value = value
+    }
+}
+
+/**
  * 保存 String 值。
  * 通过 preload 暴露的 executeCommand 调用 Redis SET，成功后通知父组件刷新详情。
  */
@@ -136,6 +192,8 @@ const handleSaveString = async () => {
             return
         }
 
+        // 保存后先回到默认文本预览，避免父级刷新前旧解析警告短暂闪现。
+        selectedValueFormat.value = DEFAULT_VALUE_FORMAT_TYPE
         isEditingString.value = false
         ElMessage.success(t('keyDetailPanels.common.messages.saveSuccess'))
         emit('refresh')
@@ -151,6 +209,7 @@ watch(
     () => props.keyData,
     (nextKeyData) => {
         stringValue.value = normalizeStringValue(nextKeyData?.value)
+        selectedValueFormat.value = DEFAULT_VALUE_FORMAT_TYPE
         isEditingString.value = false
         saving.value = false
     },
@@ -173,6 +232,40 @@ watch(
     display: flex;
     flex-shrink: 0;
     align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+/* 工具栏按钮组：编辑/保存/取消沿用 Element Plus 按钮样式，避免右侧格式选择器挤压按钮。 */
+.string-toolbar-actions {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 12px;
+}
+
+.string-toolbar-actions :deep(.el-button + .el-button) {
+    margin-left: 0;
+}
+
+/* 展示格式区域：只在预览模式出现，靠右展示当前 value 解析方式。 */
+.string-format-control {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 8px;
+}
+
+.format-label {
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+/* 解析提示：高度由内容自然决定，但和 textarea 保持明确间距。 */
+.format-warning {
+    flex-shrink: 0;
     margin-bottom: 12px;
 }
 

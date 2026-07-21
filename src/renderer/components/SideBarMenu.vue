@@ -15,10 +15,11 @@
             <!-- 导出操作面板：批量选择连接并导出。 -->
             <div v-show="!sideCollapseState && exportModeState" class="export-action-panel">
                 <div class="export-left">
-                    <el-button size="small" type="success" @click="handleSelectAll(connectionConfigs, selectedIds, t)">{{ t('sideBarMenu.selectAll') }}</el-button>
-                    <el-button size="small" type="warning" @click="handleSelectNone(selectedIds, t)">{{ t('sideBarMenu.selectNone') }}</el-button>
+                    <el-button size="small" :type="selectionToggleButtonType" @click="handleToggleConnectionSelection">
+                        {{ selectionToggleText }}
+                    </el-button>
                 </div>
-                <el-button size="small" type="primary" @click="handleExportSelected(connectionConfigs, selectedIds, t)">{{
+                <el-button class="export-selected-button" size="small" type="primary" :disabled="selectedIds.size === 0" @click="handleExportSelected(connectionConfigs, selectedIds, t)">{{
                         t('sideBarMenu.exportSelected').replace('{value}', selectedIds.size)
                     }}
                 </el-button>
@@ -131,10 +132,24 @@ const defaultOpened = ref(['group_name_1'])
 // 计算属性：是否显示下拉菜单（优化性能）
 const showMoreDropdown = computed(() => !sideCollapseState.value && !exportModeState.value)
 const showExportCheckbox = computed(() => !sideCollapseState.value && exportModeState.value)
+const isAllConnectionSelected = computed(() =>
+    connectionConfigs.value.length > 0 && connectionConfigs.value.every((config) => selectedIds.value.has(config.id))
+)
+const selectionToggleText = computed(() => isAllConnectionSelected.value ? t('sideBarMenu.selectNone') : t('sideBarMenu.selectAll'))
+const selectionToggleButtonType = computed(() => isAllConnectionSelected.value ? 'warning' : 'success')
 // 初始加载占位：当连接列表还没回来且当前确实没有任何数据时，显示 loading 而不是空态创建按钮。
 const showLoadingState = computed(() => props.isLoading && connectionConfigs.value.length === 0)
 // 空态占位：只有加载结束后依然没有任何连接配置时，才展示创建/导入按钮。
 const showEmptyState = computed(() => !props.isLoading && connectionConfigs.value.length === 0)
+
+const handleToggleConnectionSelection = () => {
+    if (isAllConnectionSelected.value) {
+        handleSelectNone(selectedIds.value, t)
+        return
+    }
+
+    handleSelectAll(connectionConfigs.value, selectedIds.value, t)
+}
 
 </script>
 
@@ -187,6 +202,21 @@ const showEmptyState = computed(() => !props.isLoading && connectionConfigs.valu
 
 .export-action-panel > .el-button {
     margin-left: auto;
+}
+
+.export-selected-button {
+    --el-button-bg-color: #409eff;
+    --el-button-border-color: #409eff;
+    --el-button-text-color: #ffffff;
+    --el-button-hover-bg-color: #66b1ff;
+    --el-button-hover-border-color: #66b1ff;
+    --el-button-hover-text-color: #ffffff;
+    --el-button-active-bg-color: #337ecc;
+    --el-button-active-border-color: #337ecc;
+    --el-button-active-text-color: #ffffff;
+    --el-button-disabled-bg-color: #5f9fd6;
+    --el-button-disabled-border-color: #5f9fd6;
+    --el-button-disabled-text-color: rgba(255, 255, 255, 0.72);
 }
 
 .menu-panel-empty {

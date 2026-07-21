@@ -5,6 +5,23 @@ export default {
             reset: '重置为默认值',
             unknownError: '未知错误'
         },
+        valueFormats: {
+            label: '展示格式',
+            text: 'Text/UTF-8',
+            json: 'JSON',
+            hex: 'Hex',
+            binary: 'Binary',
+            javaSerialization: 'Java Serialization',
+            phpSerialize: 'PHP Serialize',
+            pickle: 'Pickle',
+            messagePack: 'MessagePack',
+            gzip: 'Gzip',
+            zlibDeflate: 'Zlib/Deflate',
+            brotli: 'Brotli',
+            messages: {
+                parseFail: '当前格式解析失败，已显示原始内容：{value}'
+            }
+        },
         router: {
             splash: {
                 title: '启动中...',
@@ -122,7 +139,7 @@ export default {
             developerModeDesc: '开启开发者模式，显示更多调试信息。',
             developerShortcut: '快捷键：Ctrl/Command + Shift + I',
             versionInfo: '版本信息',
-            versionCheck: '版本检查',
+            versionCheck: '更新检查',
             update: {
                 foundTitle: '发现新版本',
                 foundMessage: '当前版本：V{current}\n最新版本：V{latest}',
@@ -130,6 +147,7 @@ export default {
                 latestVersion: '最新版本',
                 releaseNotesTitle: '更新内容：',
                 noReleaseNotes: '该版本暂无更新说明。',
+                newBadge: 'new',
                 updateNow: '去更新',
                 noUpdate: '当前已是最新版本：V{value}',
                 checkFail: '检查更新失败',
@@ -875,6 +893,7 @@ export default {
                 messageId: '消息 ID',
                 addEntryTitle: '添加 Stream Entry',
                 viewEntryTitle: '查看 Stream Entry',
+                valueFormatTip: '所选格式会应用于当前 Entry 的所有 Field Value，Field 名称不会参与解析；解析失败的 Value 将保留原始内容。',
                 autoMessageIdPlaceholder: '留空则自动生成（*）',
                 randomGenerate: '随机生成',
                 fieldsJsonPlaceholder: '请输入 JSON 对象，例如：{"key1":"value1","key2":"value2"}',

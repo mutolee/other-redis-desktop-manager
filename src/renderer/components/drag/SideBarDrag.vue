@@ -52,7 +52,7 @@ const handleResize = (event) => {
     const newWidth = startWidth.value + (event.clientX - startX.value)
 
     // 宽度限制
-    if (newWidth >= 300 && newWidth <= 500) {
+    if (newWidth >= 260 && newWidth <= 500) {
         // 更新侧边栏宽度
         emit('update:sideBarWidth', newWidth)
     }

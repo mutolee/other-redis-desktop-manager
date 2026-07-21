@@ -29,28 +29,30 @@
                         <el-tab-pane :label="t('settings.tabs.general')" name="general">
                             <template #label>
                                 <span class="tab-label">
-                                    <SettingTwo/>{{ t('settings.tabs.general') }}
+                                    <SettingTwo class="tab-icon"/>{{ t('settings.tabs.general') }}
                                 </span>
                             </template>
                         </el-tab-pane>
                         <el-tab-pane :label="t('settings.tabs.appearance')" name="appearance">
                             <template #label>
                                 <span class="tab-label">
-                                    <el-icon><Theme/></el-icon>{{ t('settings.tabs.appearance') }}
+                                    <el-icon class="tab-icon"><Theme/></el-icon>{{ t('settings.tabs.appearance') }}
                                 </span>
                             </template>
                         </el-tab-pane>
                         <el-tab-pane :label="t('settings.tabs.connection')" name="connection">
                             <template #label>
                                 <span class="tab-label">
-                                    <el-icon><LinkThree/></el-icon>{{ t('settings.tabs.connection') }}
+                                    <el-icon class="tab-icon"><LinkThree/></el-icon>{{ t('settings.tabs.connection') }}
                                 </span>
                             </template>
                         </el-tab-pane>
                         <el-tab-pane :label="t('settings.tabs.other')" name="other">
                             <template #label>
-                                <span class="tab-label">
-                                    <el-icon><More/></el-icon>{{ t('settings.tabs.other') }}
+                                <span class="tab-label settings-other-tab-label">
+                                    <el-icon class="tab-icon"><More/></el-icon>
+                                    {{ t('settings.tabs.other') }}
+                                    <span v-if="hasAvailableUpdate" class="settings-update-dot"></span>
                                 </span>
                             </template>
                         </el-tab-pane>
@@ -216,8 +218,14 @@
                                 </div>
                                 <div class="settings-item">
                                     <div class="settings-item-label">
-                                        <span>{{ t('settings.versionInfo') }}</span>
-                                        <span class="desc">V{{ currentVersion }}</span>
+                                        <span class="version-title">
+                                            {{ t('settings.versionInfo') }}
+                                            <span v-if="hasAvailableUpdate" class="version-new-badge">{{ t('settings.update.newBadge') }}</span>
+                                        </span>
+                                        <span class="desc">
+                                            V{{ currentVersion }}
+                                            <span v-if="hasAvailableUpdate && latestVersion" class="latest-version-text">(V{{ latestVersion }})</span>
+                                        </span>
                                     </div>
                                     <el-button :loading="checkingUpdate" @click="handleCheckUpdate">
                                         {{ t('settings.versionCheck') }}
@@ -242,10 +250,10 @@ import {ElMessage, ElMessageBox} from 'element-plus'
 import {applyThemeTransition} from '../../utils/themeTransition.js'
 import {useI18n} from '../../i18n/index.js'
 import {useUserSettingsStore} from '../../stores/modules/userSettingsStore.js'
+import {useAppUpdateStore} from '../../stores/modules/appUpdateStore.js'
 import UpdateCheckDialog from '../dialog/UpdateCheckDialog.vue'
 
 // 组件入参：由标题栏或其他入口控制设置抽屉显示状态。
-
 const props = defineProps({
     visible: {
         type: Boolean
@@ -253,7 +261,6 @@ const props = defineProps({
 })
 
 // 对外事件：同步 v-model:visible。
-
 const emit = defineEmits(['update:visible'])
 
 // 抽屉可见性代理：把 Element Plus Drawer 的 v-model 透传给父组件。
@@ -264,10 +271,13 @@ const drawerVisible = computed({
     set: value => emit('update:visible', value)
 })
 
-// 用户设置 store：设置抽屉中的所有配置项都直接读写该 store。
+// 用户设置 Store：设置抽屉中的主题、语言、关闭行为等配置项直接读写该 Store。
 const userSettingsStore = useUserSettingsStore()
-// 国际化文案：设置抽屉是语言切换的入口，需要优先接入 i18n。
 
+// 应用更新 Store：驱动版本检查按钮 loading、Other Tab 红点和版本信息 new 标记。
+const appUpdateStore = useAppUpdateStore()
+
+// 国际化文案：设置抽屉是语言切换入口，需要优先接入 i18n。
 const {t} = useI18n()
 
 // 记录最后点击位置，用于 View Transitions 动画圆心
@@ -291,32 +301,26 @@ const {
     closeManagement,
     developerMode
 } = storeToRefs(userSettingsStore)
+const {
+    currentVersion,
+    hasAvailableUpdate,
+    latestVersion,
+    checking: checkingUpdate
+} = storeToRefs(appUpdateStore)
 
 // 当前激活的设置标签页。
 const activeTab = ref('general')
 
-// 当前应用版本：从 main 进程读取，避免设置页写死版本号。
-
-const currentVersion = ref('1.0.0')
-
-// 更新检查状态：控制设置页按钮 loading，避免重复点击。
-
-const checkingUpdate = ref(false)
-
 // 更新弹窗状态：发现新版本后交给独立弹窗组件展示。
-
 const updateDialogVisible = ref(false)
 
 // 待展示的更新信息：由 main 进程从 GitHub Release 返回，传给更新弹窗组件。
-
 const updateDialogInfo = ref(null)
 
 // 设置左侧 Tabs 宽度：中文紧凑显示，英文为较长标签预留空间。
-
 const settingsTabWidth = computed(() => language.value === 'en-US' ? '130px' : '100px')
 
 // 主题选项：浅色/深色，切换时使用 View Transition 动画。
-
 const themeOptions = computed(() => [
     {label: t('settings.themeLight'), value: 'light'},
     {label: t('settings.themeDark'), value: 'dark'}
@@ -414,10 +418,8 @@ const handleCheckUpdate = async () => {
         return
     }
 
-    checkingUpdate.value = true
-
     try {
-        const updateResult = await window.api.appInfo.checkUpdate()
+        const updateResult = await appUpdateStore.checkForUpdates()
 
         if (!updateResult.success) {
             ElMessage.error(updateResult.error || t('settings.update.checkFail'))
@@ -425,7 +427,6 @@ const handleCheckUpdate = async () => {
         }
 
         const updateInfo = updateResult.data
-        currentVersion.value = updateInfo.currentVersion || currentVersion.value
 
         if (!updateInfo.hasUpdate) {
             ElMessage.success(t('settings.update.noUpdate', {value: updateInfo.currentVersion}))
@@ -436,16 +437,11 @@ const handleCheckUpdate = async () => {
         updateDialogVisible.value = true
     } catch (error) {
         ElMessage.error(error.message || t('settings.update.checkFail'))
-    } finally {
-        checkingUpdate.value = false
     }
 }
+
 onMounted(async () => {
-    try {
-        currentVersion.value = await window.api.appInfo.getVersion()
-    } catch {
-        currentVersion.value = '1.0.0'
-    }
+    await appUpdateStore.initializeUpdateState()
 })
 </script>
 
@@ -493,6 +489,23 @@ onMounted(async () => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.tab-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    line-height: 1;
+    transform: translateY(1px);
+}
+
+.settings-update-dot {
+    width: 7px;
+    height: 7px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: #f56c6c;
 }
 
 .settings-tabs .tab-label :deep(.i-icon),
@@ -554,6 +567,28 @@ onMounted(async () => {
 .settings-item-label .desc {
     font-size: 12px;
     color: var(--el-text-color-secondary);
+}
+
+.version-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.version-new-badge {
+    height: 16px;
+    padding: 0 5px;
+    border-radius: 8px;
+    font-size: 11px;
+    line-height: 16px;
+    color: #ffffff;
+    background: #f56c6c;
+    text-transform: uppercase;
+}
+
+.latest-version-text {
+    margin-left: 4px;
+    color: #f56c6c;
 }
 
 .color-select {

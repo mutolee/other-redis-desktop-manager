@@ -70,7 +70,7 @@
                                                 </el-tooltip>
 
                                                 <el-tooltip :content="t('keyDetailPanels.common.view')" placement="top" :show-after="200">
-                                                    <el-button circle size="small" plain :icon="View" @click="handleViewMember(data[index].member)"/>
+                                                    <el-button circle size="small" plain :icon="View" @click="handleViewMember(data[index])"/>
                                                 </el-tooltip>
 
                                                 <el-tooltip :content="t('keyDetailPanels.common.delete')" placement="top" :show-after="200">
@@ -147,7 +147,22 @@
                 <DialogTitle :icon="View" :title="t('keyDetailPanels.common.viewMemberTitle')"/>
             </template>
 
-            <ViewerTextarea :model-value="viewingMember" :height="180"/>
+            <div class="member-viewer">
+                <div class="viewer-format-toolbar">
+                    <span class="viewer-label">{{ t('valueFormats.label') }}</span>
+                    <ValueFormatSelect v-model="selectedValueFormat"/>
+                </div>
+
+                <el-alert
+                    v-if="viewingMemberFormatWarning"
+                    :title="viewingMemberFormatWarning"
+                    type="warning"
+                    show-icon
+                    :closable="false"
+                />
+
+                <ViewerTextarea :model-value="viewingMemberDisplayValue" :height="180"/>
+            </div>
 
             <template #footer>
                 <!-- 查看弹窗底部操作区：复制当前完整 Member 内容。 -->
@@ -168,8 +183,10 @@ import {Copy as DocumentCopy, Delete, Edit, Plus, PreviewOpen as View, Search} f
 import DialogTitle from '../common/DialogTitle.vue'
 import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
+import ValueFormatSelect from '../common/ValueFormatSelect.vue'
 import DetailLoadFooter from './common/DetailLoadFooter.vue'
 import {useI18n} from '../../i18n/index.js'
+import {DEFAULT_VALUE_FORMAT_TYPE, formatValueForDisplay} from '../../utils/valueFormatters/index.js'
 
 // 国际化文案读取函数：驱动 Set 表格、弹窗和操作反馈文案。
 const {t} = useI18n()
@@ -207,8 +224,11 @@ const memberForm = reactive({
     member: ''
 })
 
-// 当前查看中的成员内容。
-const viewingMember = ref('')
+// 当前查看中的成员行：同时保存 UTF-8 文本和二进制解析需要的原始字节。
+const viewingMember = ref(null)
+
+// 当前查看弹窗的 member 展示格式：只影响预览和复制内容，不参与 Set 写入。
+const selectedValueFormat = ref(DEFAULT_VALUE_FORMAT_TYPE)
 
 // 保存成员状态：控制新增/编辑确认按钮 loading 和重复提交保护。
 const savingMember = ref(false)
@@ -248,11 +268,54 @@ const canSubmitMember = computed(() => Boolean(memberForm.member.trim()) && !sav
 // 当前是否仍有未扫描成员：SSCAN 只能通过 cursor 是否归零判断是否结束。
 const hasMore = computed(() => setCursor.value !== '0')
 
+/**
+ * 统一 Set 成员结构，兼容旧数据中直接保存字符串的情况。
+ * @param {unknown} item Redis Set 成员
+ * @returns {{member:string, memberRawBase64:string}} 文本成员和原始字节
+ */
+const normalizeSetMember = (item) => {
+    if (item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'member')) {
+        return {
+            member: String(item.member ?? ''),
+            memberRawBase64: typeof item.memberRawBase64 === 'string' ? item.memberRawBase64 : ''
+        }
+    }
+
+    return {
+        member: String(item ?? ''),
+        memberRawBase64: ''
+    }
+}
+
+/**
+ * 获取 Set 成员去重标识；有原始字节时优先使用 Base64，避免 UTF-8 解码碰撞。
+ * @param {{member:string, memberRawBase64:string}} item Set 成员
+ * @returns {string} 成员唯一标识
+ */
+const getSetMemberIdentity = (item) => item.memberRawBase64 || `text:${item.member}`
+
 // Set 表格数据：把成员数组转成虚拟表格需要的行结构。
 const rows = computed(() => {
-    return members.value.map((member) => ({
-        member
-    }))
+    return members.value
+})
+
+// 当前查看成员的解析结果：优先使用 main 进程返回的原始字节，保证二进制格式解析准确。
+const viewingMemberFormatResult = computed(() => formatValueForDisplay(
+    viewingMember.value?.member,
+    selectedValueFormat.value,
+    {rawBase64: viewingMember.value?.memberRawBase64}
+))
+
+// 查看弹窗 textarea 内容：展示当前格式解析后的文本，解析失败时 formatter 会保留原始内容。
+const viewingMemberDisplayValue = computed(() => viewingMemberFormatResult.value.text)
+
+// 查看弹窗解析失败提示：沿用 String 详情页的统一提示文案。
+const viewingMemberFormatWarning = computed(() => {
+    if (viewingMemberFormatResult.value.success) {
+        return ''
+    }
+
+    return t('valueFormats.messages.parseFail', {value: viewingMemberFormatResult.value.error})
 })
 
 // 过滤后的成员列表：搜索框为空时展示全部成员，输入后按 Value 进行不区分大小写匹配。
@@ -285,19 +348,21 @@ const buildMemberAddCommand = (member) => {
 /**
  * 合并 Set 成员列表。
  * SSCAN 在数据变化时可能返回重复成员，前端按 member 去重保证表格稳定。
- * @param {Array<string>} currentItems 当前已加载成员
- * @param {Array<string>} nextItems 新扫描成员
- * @returns {Array<string>} 合并后的成员列表
+ * @param {Array<Object>} currentItems 当前已加载成员
+ * @param {Array<Object>} nextItems 新扫描成员
+ * @returns {Array<Object>} 合并后的成员列表
  */
 const mergeSetMembers = (currentItems, nextItems) => {
     const merged = [...currentItems]
-    const seen = new Set(merged)
+    const seen = new Set(merged.map(getSetMemberIdentity))
 
     for (const item of nextItems) {
-        const member = String(item ?? '')
-        if (!seen.has(member)) {
-            seen.add(member)
-            merged.push(member)
+        const normalizedItem = normalizeSetMember(item)
+        const identity = getSetMemberIdentity(normalizedItem)
+
+        if (!seen.has(identity)) {
+            seen.add(identity)
+            merged.push(normalizedItem)
         }
     }
 
@@ -338,7 +403,9 @@ const fetchSetRange = async (cursor) => {
     }
 
     return {
-        items: Array.isArray(response.data?.items) ? response.data.items.map((item) => String(item)) : [],
+        items: Array.isArray(response.data?.items)
+            ? response.data.items.map(normalizeSetMember)
+            : [],
         cursor: String(response.data?.cursor ?? '0'),
         size: Number(response.data?.size) || 0
     }
@@ -401,16 +468,16 @@ const handleSaveMember = async () => {
         if (isMemberRenamed) {
             await runRedisCommand('SREM', [props.keyData.key, originalMember])
             const nextMembers = [...members.value]
-            const originalIndex = nextMembers.findIndex((item) => item === originalMember)
+            const originalIndex = nextMembers.findIndex((item) => item.member === originalMember)
 
             if (originalIndex >= 0) {
-                nextMembers[originalIndex] = member
+                nextMembers[originalIndex] = normalizeSetMember(member)
                 members.value = nextMembers
             } else {
-                members.value = [member, ...members.value]
+                members.value = [normalizeSetMember(member), ...members.value]
             }
         } else {
-            members.value = [member, ...members.value]
+            members.value = [normalizeSetMember(member), ...members.value]
             setTotalSize.value += 1
         }
 
@@ -443,8 +510,8 @@ const handleCopyMemberCommand = async (member) => {
  */
 const handleCopyViewingMember = async () => {
     try {
-        // 查看弹窗复制的是当前展示内容，不是表格里的 SADD 命令。
-        await navigator.clipboard.writeText(viewingMember.value || '')
+        // 查看弹窗复制当前解析后的展示内容，不是表格里的 SADD 命令。
+        await navigator.clipboard.writeText(viewingMemberDisplayValue.value)
         ElMessage.success(t('keyDetailPanels.common.messages.contentCopied'))
     } catch (error) {
         ElMessage.error(error.message || t('keyDetailPanels.common.messages.copyContentFail'))
@@ -453,10 +520,11 @@ const handleCopyViewingMember = async () => {
 
 /**
  * 打开成员完整内容查看弹窗。
- * @param {string} member 当前 Set 成员
+ * @param {Object} row 当前 Set 成员行
  */
-const handleViewMember = (member) => {
-    viewingMember.value = member
+const handleViewMember = (row) => {
+    viewingMember.value = row
+    selectedValueFormat.value = DEFAULT_VALUE_FORMAT_TYPE
     memberViewerVisible.value = true
 }
 
@@ -539,7 +607,7 @@ const handleDeleteMember = async (member) => {
             return
         }
 
-        members.value = members.value.filter((item) => item !== member)
+        members.value = members.value.filter((item) => item.member !== member)
         setTotalSize.value = Math.max(0, setTotalSize.value - 1)
         ElMessage.success(t('keyDetailPanels.common.messages.memberDeleted'))
     } catch (error) {
@@ -556,7 +624,7 @@ watch(
     () => props.keyData,
     (nextKeyData) => {
         const value = Array.isArray(nextKeyData?.value) ? nextKeyData.value : []
-        members.value = value.map((member) => String(member))
+        members.value = value.map(normalizeSetMember)
         setCursor.value = String(nextKeyData?.cursor ?? '0')
         setTotalSize.value = Number(nextKeyData?.size) || members.value.length
         savingMember.value = false
@@ -716,6 +784,26 @@ watch(
 /* 成员编辑表单：给弹窗内容留出稳定间距，避免 textarea 贴边。 */
 .member-editor-form {
     padding: 4px 4px 0 0;
+}
+
+/* 查看弹窗主体：格式控制、解析提示和完整 Member 内容上下排列。 */
+.member-viewer {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* 查看弹窗格式控制：Set 没有 Index/Field，格式选择器单独靠右展示。 */
+.viewer-format-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.viewer-label {
+    flex-shrink: 0;
+    color: var(--el-text-color-secondary);
 }
 
 /* Set 成员文本域：固定高度，长 Member 通过内部滚动查看或编辑。 */

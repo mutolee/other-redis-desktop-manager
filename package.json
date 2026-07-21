@@ -1,7 +1,7 @@
 {
   "name": "other-redis-desktop-manager",
   "productName": "Other Redis Desktop Manager",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "基于 Vue 3、Element Plus 和 Electron 构建的 Redis 桌面客户端",
   "author": "mutolee",
   "license": "UNLICENSED",
@@ -124,19 +124,26 @@
   },
   "devDependencies": {
     "@icon-park/vue-next": "^1.4.2",
+    "@msgpack/msgpack": "^3.1.3",
     "@vitejs/plugin-vue": "^5.2.4",
+    "brotli": "^1.3.3",
+    "buffer": "^6.0.3",
     "dexie": "^4.2.1",
     "echarts": "^6.0.0",
     "electron": "^39.8.0",
     "electron-builder": "^26.0.12",
     "element-plus": "^2.12.0",
+    "java-object-serialization": "^0.1.2",
     "mitt": "^3.0.1",
     "nodemon": "^3.1.11",
+    "pako": "^3.0.1",
+    "php-serialize": "^5.1.3",
+    "pickleparser": "^0.2.1",
     "pinia": "^3.0.4",
     "pinia-plugin-persistedstate": "^4.7.1",
+    "vite": "^6.4.2",
     "vue": "^3.5.25",
     "vue-echarts": "^8.0.1",
-    "vue-router": "^4.6.4",
-    "vite": "^6.4.2"
+    "vue-router": "^4.6.4"
   }
 }

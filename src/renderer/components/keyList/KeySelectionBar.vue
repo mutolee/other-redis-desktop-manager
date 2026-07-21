@@ -6,11 +6,8 @@
     <!-- 选择操作条：紧贴列表上方，左右分区放置选择动作和最终提交动作。 -->
     <div class="key-selection-bar">
         <div class="key-selection-actions">
-            <el-button size="small" type="success" @click="$emit('select-all')">
-                {{ currentText.selectAll }}
-            </el-button>
-            <el-button size="small" type="warning" @click="$emit('clear')">
-                {{ currentText.clearSelection }}
+            <el-button size="small" :type="selectionToggleButtonType" @click="handleSelectionToggle">
+                {{ selectionToggleText }}
             </el-button>
 
             <span class="key-selection-divider"></span>
@@ -36,6 +33,7 @@
                 </template>
 
                 <el-button
+                    class="export-submit-button"
                     size="small"
                     :type="submitButtonType"
                     :loading="loading"
@@ -79,13 +77,17 @@ const props = defineProps({
         type: Number,
         default: 0
     },
+    allSelected: {
+        type: Boolean,
+        default: false
+    },
     loading: {
         type: Boolean,
         default: false
     }
 })
 
-defineEmits(['select-all', 'clear', 'close', 'submit'])
+const emit = defineEmits(['select-all', 'clear', 'close', 'submit'])
 
 // 导出模式需要额外展示导出限制提示，批量删除模式只保留危险提交按钮。
 const isExportMode = computed(() => props.mode === 'export')
@@ -115,6 +117,13 @@ const currentText = computed(() => {
         submit: t('keyList.batchDeleteSelection.deleteSelected', {value: props.selectedCount})
     }
 })
+
+const selectionToggleText = computed(() => props.allSelected ? currentText.value.clearSelection : currentText.value.selectAll)
+const selectionToggleButtonType = computed(() => props.allSelected ? 'warning' : 'success')
+
+const handleSelectionToggle = () => {
+    emit(props.allSelected ? 'clear' : 'select-all')
+}
 </script>
 
 <style scoped>
@@ -155,16 +164,16 @@ const currentText = computed(() => {
     max-width: 360px;
     padding: 10px 12px !important;
     line-height: 1.6;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid var(--el-border-color-light) !important;
     border-radius: 6px;
-    color: #f2f6fc !important;
-    background: #2f3135 !important;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+    color: var(--el-text-color-primary) !important;
+    background: var(--el-bg-color-overlay) !important;
+    box-shadow: var(--el-box-shadow-light);
 }
 
 :global(.el-popper.key-export-limit-tooltip .el-popper__arrow::before) {
-    border-color: rgba(255, 255, 255, 0.08) !important;
-    background: #2f3135 !important;
+    border-color: var(--el-border-color-light) !important;
+    background: var(--el-bg-color-overlay) !important;
 }
 
 :global(.key-export-limit-content) {
@@ -176,7 +185,7 @@ const currentText = computed(() => {
 :global(.key-export-limit-title) {
     font-size: 13px;
     font-weight: 600;
-    color: #5cb6ff;
+    color: var(--el-color-primary);
 }
 
 :global(.key-export-limit-list) {
@@ -192,7 +201,7 @@ const currentText = computed(() => {
     position: relative;
     padding-left: 12px;
     font-size: 12px;
-    color: #d7dde8;
+    color: var(--el-text-color-regular);
 }
 
 :global(.key-export-limit-list li::before) {
@@ -203,7 +212,22 @@ const currentText = computed(() => {
     height: 4px;
     content: "";
     border-radius: 50%;
-    background: #5cb6ff;
+    background: var(--el-color-primary);
     transform: translateY(-50%);
+}
+
+.export-submit-button {
+    --el-button-bg-color: #409eff;
+    --el-button-border-color: #409eff;
+    --el-button-text-color: #ffffff;
+    --el-button-hover-bg-color: #66b1ff;
+    --el-button-hover-border-color: #66b1ff;
+    --el-button-hover-text-color: #ffffff;
+    --el-button-active-bg-color: #337ecc;
+    --el-button-active-border-color: #337ecc;
+    --el-button-active-text-color: #ffffff;
+    --el-button-disabled-bg-color: #5f9fd6;
+    --el-button-disabled-border-color: #5f9fd6;
+    --el-button-disabled-text-color: rgba(255, 255, 255, 0.72);
 }
 </style>

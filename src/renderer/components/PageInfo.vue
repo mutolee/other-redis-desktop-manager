@@ -15,7 +15,14 @@
 
             <!-- 连接成功后，展示 Key 列表和 Key 详情分栏 -->
             <template v-else-if="isConnectionReady">
-                <ResizableSplitPane v-model:left-width="leftWidth" class="content-page" :min-width="20" :max-width="80">
+                <ResizableSplitPane
+                    v-model:left-width="leftWidth"
+                    class="content-page"
+                    :min-width="0"
+                    :max-width="80"
+                    :min-left-pixel-width="315"
+                    :default-left-pixel-width="368"
+                >
                     <!-- 左侧 Key 列表区域 -->
                     <template #left>
                         <el-card shadow="never" class="content-left">
@@ -157,7 +164,7 @@ const currentDbIndex = computed(() => currOpenedConnectionConfig.value?.db_index
 const currentKeySeparator = computed(() => normalizeKeySeparator(currOpenedConnectionConfig.value?.key_split))
 
 // 左侧面板宽度百分比，拖拽时在限制范围内动态变化。
-const leftWidth = ref(28)
+const leftWidth = ref(24)
 
 // 右侧已打开的 Key 详情 tab 列表，左侧点击 Key 时追加或激活。
 const detailTabs = ref([])

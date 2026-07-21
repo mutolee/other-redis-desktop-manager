@@ -34,7 +34,7 @@ const getInitialWindowSize = () => {
  */
 class MainWindow {
     constructor() {
-        // 主窗口 BrowserWindow 实例：IPC 和托盘模块会通过 getMainWindow() 间接访问。
+        // 主窗口 BrowserWindow 实例，IPC 和托盘模块会通过 getMainWindow() 间接访问。
         this.win = null
         this.createWindow()
     }
@@ -58,13 +58,13 @@ class MainWindow {
         })
 
         // 渲染诊断：生产环境白屏时输出 loadFile 和 renderer 控制台错误，便于 macOS 打包排查。
+        attachRendererDiagnostics(this.win)
+
         if (process.platform === 'darwin') {
+            // macOS Retina 屏幕下整体视觉密度偏大，轻量缩放渲染页面以保持桌面工具的紧凑感。
             this.win.webContents.setZoomFactor(0.9)
         }
 
-        attachRendererDiagnostics(this.win)
-
-        // 主窗口关闭后释放单例引用，方便后续需要时重新创建窗口。
         this.win.on('closed', () => {
             this.win = null
             mainWindowInstance = null
@@ -80,7 +80,7 @@ class MainWindow {
     async loadContent() {
         await loadVueDevToolsInDevelopment()
 
-        // 主页面统一走 renderer hash 路由，生产/开发地址由窗口配置工具处理。
+        // 主页面统一走 renderer hash 路由，生产和开发地址由窗口配置工具处理。
         await loadRendererRoute(this.win, '#/main')
     }
 

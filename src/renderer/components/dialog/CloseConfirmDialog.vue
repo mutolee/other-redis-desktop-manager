@@ -124,13 +124,12 @@ const handleCancel = () => {
 
 <style scoped>
 .dialog-content {
-    padding: 10px 0;
+    padding: 0 20px;
 }
 
 .select-radio-group {
     margin-top: 20px;
     margin-bottom: 15px;
-    margin-left: 20px;
     display: flex;
     flex-direction: column;
     align-items: start;

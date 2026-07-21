@@ -29,7 +29,7 @@
  * 左右分栏拖拽组件。
  * 通过 v-model:left-width 向父组件同步左侧宽度百分比。
  */
-import {computed, onUnmounted, ref} from 'vue'
+import {computed, nextTick, onMounted, onUnmounted, ref} from 'vue'
 
 // 组件入参：控制左侧宽度、最小/最大百分比范围。
 const props = defineProps({
@@ -40,6 +40,14 @@ const props = defineProps({
     minWidth: {
         type: Number,
         default: 20
+    },
+    minLeftPixelWidth: {
+        type: Number,
+        default: 0
+    },
+    defaultLeftPixelWidth: {
+        type: Number,
+        default: 0
     },
     maxWidth: {
         type: Number,
@@ -64,8 +72,39 @@ const containerRef = ref(null)
 
 // 左侧面板样式：由父组件传入的宽度百分比派生。
 const leftPaneStyle = computed(() => ({
-    width: `${props.leftWidth}%`
+    width: `${props.leftWidth}%`,
+    minWidth: props.minLeftPixelWidth > 0 ? `${props.minLeftPixelWidth}px` : undefined
 }))
+
+const getMinAllowedWidth = (containerWidth) => {
+    const minPixelWidthPercent = props.minLeftPixelWidth > 0
+        ? (props.minLeftPixelWidth / containerWidth) * 100
+        : 0
+
+    return Math.max(props.minWidth, minPixelWidthPercent)
+}
+
+const clampLeftWidth = (nextWidth, containerWidth) => {
+    const minAllowedWidth = getMinAllowedWidth(containerWidth)
+
+    return Math.min(props.maxWidth, Math.max(minAllowedWidth, nextWidth))
+}
+
+const applyDefaultLeftPixelWidth = async () => {
+    if (props.defaultLeftPixelWidth <= 0) {
+        return
+    }
+
+    await nextTick()
+
+    const containerWidth = containerRef.value?.clientWidth || 0
+
+    if (!containerWidth) {
+        return
+    }
+
+    emit('update:leftWidth', clampLeftWidth((props.defaultLeftPixelWidth / containerWidth) * 100, containerWidth))
+}
 
 /**
  * 开始拖拽左右分栏。
@@ -109,9 +148,8 @@ const handleResize = (event) => {
     // 将像素位移转换为百分比，让不同窗口宽度下拖拽手感一致。
     const deltaPercent = ((event.clientX - dragStartX.value) / containerWidth) * 100
     const nextWidth = dragStartWidth.value + deltaPercent
-
     // 限制左右面板最小/最大宽度，避免某一侧被拖到不可用。
-    emit('update:leftWidth', Math.min(props.maxWidth, Math.max(props.minWidth, nextWidth)))
+    emit('update:leftWidth', clampLeftWidth(nextWidth, containerWidth))
 }
 
 /**
@@ -130,6 +168,10 @@ const stopResize = () => {
     document.body.style.cursor = ''
     document.body.style.userSelect = ''
 }
+
+onMounted(() => {
+    applyDefaultLeftPixelWidth()
+})
 
 onUnmounted(() => {
     // 组件销毁时主动清理拖拽监听，避免遗留全局事件。

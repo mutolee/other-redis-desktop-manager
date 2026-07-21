@@ -185,18 +185,49 @@
                 <DialogTitle :icon="View" :title="t('keyDetailPanels.stream.viewEntryTitle')"/>
             </template>
 
-            <el-form :label-width="entryViewerLabelWidth" class="entry-viewer-form">
-                <el-form-item :label="t('keyDetailPanels.stream.messageId')">
-                    <el-input :model-value="viewingEntry.id" readonly style="width: 300px"/>
-                </el-form-item>
+            <div class="entry-viewer">
+                <div class="entry-viewer-meta-row">
+                    <div class="entry-viewer-id-field">
+                        <span class="entry-viewer-field-label">{{ t('keyDetailPanels.stream.messageId') }}</span>
+                        <el-input
+                            :model-value="viewingEntry.id"
+                            class="viewer-message-id-input"
+                            readonly
+                        />
+                    </div>
 
-                <el-form-item :label="t('keyDetailPanels.common.labels.fields')">
-                    <ViewerTextarea :model-value="viewingEntryFieldsJson" :height="260"/>
-                </el-form-item>
-            </el-form>
+                    <div class="entry-format-control">
+                        <el-tooltip
+                            :content="t('keyDetailPanels.stream.valueFormatTip')"
+                            placement="top"
+                            popper-class="stream-value-format-tooltip"
+                        >
+                            <Info class="entry-format-tip-icon"/>
+                        </el-tooltip>
+                        <span class="entry-format-label">{{ t('valueFormats.label') }}</span>
+                        <ValueFormatSelect v-model="selectedEntryValueFormat"/>
+                    </div>
+                </div>
+
+                <div class="entry-viewer-fields-row">
+                    <span class="entry-viewer-field-label">{{ t('keyDetailPanels.common.labels.fields') }}</span>
+                    <div class="entry-fields-viewer">
+                        <el-alert
+                            v-if="viewingEntryFormatWarning"
+                            class="entry-format-warning"
+                            :title="viewingEntryFormatWarning"
+                            type="warning"
+                            show-icon
+                            :closable="false"
+                        />
+
+                        <ViewerTextarea :model-value="viewingEntryDisplayValue" :height="260"/>
+                    </div>
+                </div>
+            </div>
 
             <template #footer>
-                <!-- 查看弹窗底部操作区：复制当前完整 Fields JSON 内容。 -->
+                <!-- 查看弹窗底部操作区：复制当前解析格式下的完整 Fields JSON。 -->
                 <div class="dialog-footer">
                     <el-button type="primary" @click="handleCopyViewingEntry">
                         {{ t('keyDetailPanels.common.copy') }}
@@ -336,15 +367,17 @@
 <script setup>
 import {computed, reactive, ref, watch} from 'vue'
 import {ElAutoResizer as AutoResizer, ElMessage, ElMessageBox, FixedSizeList} from 'element-plus'
-import {Copy as DocumentCopy, Delete, Plus, PreviewOpen as View, Refresh, Search} from '@icon-park/vue-next'
+import {Copy as DocumentCopy, Delete, Info, Plus, PreviewOpen as View, Refresh, Search} from '@icon-park/vue-next'
 import DialogTitle from '../common/DialogTitle.vue'
 import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
+import ValueFormatSelect from '../common/ValueFormatSelect.vue'
 import DetailLoadFooter from './common/DetailLoadFooter.vue'
 import {useI18n} from '../../i18n/index.js'
+import {DEFAULT_VALUE_FORMAT_TYPE, formatValueForDisplay, VALUE_FORMAT_TYPES} from '../../utils/valueFormatters/index.js'
 
 // 国际化文案读取函数：驱动 Stream 表格、Entry 弹窗、语言布局和消费组抽屉文案。
-const {language, t} = useI18n()
+const {t} = useI18n()
 
 // 组件入参：tabId 用于定位 Redis 连接，keyData 是父组件读取到的 Stream Key 详情。
 const props = defineProps({
@@ -405,20 +438,76 @@ const viewingEntry = reactive({
     fields: []
 })
 
-// 查看弹窗 Fields JSON：把 Stream field/value 数组格式化为对象文本，便于用户整体复制和阅读。
-const viewingEntryFieldsJson = computed(() => {
+// 当前 Entry 全部 Field Value 的展示格式，最终结果始终重新组合为 JSON。
+const selectedEntryValueFormat = ref(DEFAULT_VALUE_FORMAT_TYPE)
+
+// 这些解析器返回的是结构化内容文本，需要在重新组合 Fields JSON 时还原为对象、数组或基础值。
+const STRUCTURED_VALUE_FORMAT_TYPES = new Set([
+    VALUE_FORMAT_TYPES.JSON,
+    VALUE_FORMAT_TYPES.JAVA_SERIALIZATION,
+    VALUE_FORMAT_TYPES.PHP_SERIALIZE,
+    VALUE_FORMAT_TYPES.PICKLE,
+    VALUE_FORMAT_TYPES.MESSAGE_PACK
+])
+
+/**
+ * 将单个 Field 的解析结果转换成 JSON 中可展示的值。
+ * 文本、Hex 和压缩格式保持字符串；结构化解析器尽量还原为 JSON 值。
+ *
+ * @param {{success:boolean,text:string,error:string}} result - Field value 解析结果。
+ * @param {string} formatType - 当前选择的解析格式。
+ * @returns {unknown} 可写入 Fields JSON 的值。
+ */
+const getFormattedFieldValue = (result, formatType) => {
+    if (!result.success || !STRUCTURED_VALUE_FORMAT_TYPES.has(formatType)) {
+        return result.text
+    }
+
+    try {
+        return JSON.parse(result.text)
+    } catch {
+        return result.text
+    }
+}
+
+// Entry 查看内容：按选定格式解析所有 Field Value，再组合成完整 JSON。
+const viewingEntryFormatResult = computed(() => {
     const fieldObject = {}
+    let firstError = ''
 
     // Stream 理论上允许重复 field；JSON 对象无法保留重复键，这里以后出现的同名字段为准。
     for (const item of viewingEntry.fields) {
-        fieldObject[item.field] = item.value
+        const result = formatValueForDisplay(
+            item.value,
+            selectedEntryValueFormat.value,
+            {rawBase64: item.valueRawBase64}
+        )
+
+        fieldObject[item.field] = getFormattedFieldValue(result, selectedEntryValueFormat.value)
+
+        if (!result.success && !firstError) {
+            firstError = `${item.field}: ${result.error}`
+        }
     }
 
-    return JSON.stringify(fieldObject, null, 4)
+    return {
+        success: !firstError,
+        text: JSON.stringify(fieldObject, null, 4),
+        error: firstError
+    }
 })
 
-// 查看弹窗表单标签宽度：英文 Message ID 更长，单独加宽避免换行。
-const entryViewerLabelWidth = computed(() => language.value === 'zh-CN' ? '72px' : '96px')
+// 当前查看弹窗 textarea 内容：随解析格式切换。
+const viewingEntryDisplayValue = computed(() => viewingEntryFormatResult.value.text)
+
+// 只提示第一个解析失败的 Field，避免大量同类错误挤压内容区域。
+const viewingEntryFormatWarning = computed(() => {
+    if (viewingEntryFormatResult.value.success) {
+        return ''
+    }
+
+    return t('valueFormats.messages.parseFail', {value: viewingEntryFormatResult.value.error})
+})
 
 // Entry 保存状态：控制新增弹窗确认按钮 loading 与重复提交保护。
 const savingEntry = ref(false)
@@ -578,13 +667,14 @@ const parseEntryFieldsText = (text) => {
 /**
  * 规范化 Stream Entry 字段，确保表格、查看弹窗和复制命令拿到稳定结构。
  * @param {Object} entry Stream entry 原始数据
- * @returns {{id:string, fields:Array<{field:string,value:string}>, summary:string}} 规范化后的 entry
+ * @returns {{id:string, fields:Array<{field:string,value:string,valueRawBase64:string}>, summary:string}} 规范化后的 entry
  */
 const normalizeEntry = (entry) => {
     const fields = Array.isArray(entry?.fields)
         ? entry.fields.map((item) => ({
             field: String(item?.field ?? ''),
-            value: String(item?.value ?? '')
+            value: String(item?.value ?? ''),
+            valueRawBase64: typeof item?.valueRawBase64 === 'string' ? item.valueRawBase64 : ''
         }))
         : []
 
@@ -652,7 +742,9 @@ const fetchStreamRange = async (maxId, minId) => {
     }
 
     return {
-        items: Array.isArray(response.data?.items) ? response.data.items : [],
+        items: Array.isArray(response.data?.items)
+            ? response.data.items.map(normalizeEntry)
+            : [],
         size: Number(response.data?.size) || 0
     }
 }
@@ -870,12 +962,12 @@ const handleCopyEntryCommand = async (row) => {
 }
 
 /**
- * 复制查看弹窗中的完整 Stream Fields JSON。
+ * 复制查看弹窗中的当前内容。
  */
 const handleCopyViewingEntry = async () => {
     try {
-        // 查看弹窗复制的是格式化后的 Fields JSON，不是表格里的 XADD 命令。
-        await navigator.clipboard.writeText(viewingEntryFieldsJson.value || '')
+        // 复制当前解析格式下重新组合出的完整 Fields JSON。
+        await navigator.clipboard.writeText(viewingEntryDisplayValue.value || '')
         ElMessage.success(t('keyDetailPanels.common.messages.contentCopied'))
     } catch (error) {
         ElMessage.error(error.message || t('keyDetailPanels.common.messages.copyContentFail'))
@@ -891,6 +983,7 @@ const handleViewEntry = (row) => {
 
     viewingEntry.id = normalizedEntry.id
     viewingEntry.fields = normalizedEntry.fields
+    selectedEntryValueFormat.value = DEFAULT_VALUE_FORMAT_TYPE
     entryViewerVisible.value = true
 }
 
@@ -935,7 +1028,9 @@ const handleDeleteEntry = async (row) => {
 watch(
     () => props.keyData,
     (nextKeyData) => {
-        loadedEntries.value = Array.isArray(nextKeyData?.value) ? [...nextKeyData.value] : []
+        loadedEntries.value = Array.isArray(nextKeyData?.value)
+            ? nextKeyData.value.map(normalizeEntry)
+            : []
         streamTotalSize.value = Number(nextKeyData?.size) || loadedEntries.value.length
         rangeExhausted.value = loadedEntries.value.length < STREAM_PAGE_SIZE
         rangeMinId.value = ''
@@ -1106,15 +1201,104 @@ watch(
 }
 
 
-/* Entry 弹窗表单：给输入区留出轻微内边距，避免 textarea 贴边。 */
-.entry-editor-form,
-.entry-viewer-form {
+/* Entry 新增弹窗表单：给输入区留出轻微内边距，避免 textarea 贴边。 */
+.entry-editor-form {
     padding: 4px 4px 0 0;
 }
 
-/* 消息 ID 输入框：Stream ID 一般较短，避免输入框在弹窗里显得过长。 */
+/* 新增弹窗消息 ID 输入框：给手动输入和随机生成按钮保留稳定宽度。 */
 .message-id-input {
     width: 300px;
+}
+
+/* 查看弹窗主体：Message ID/格式控制和 Fields 内容形成与 ZSet 一致的两行布局。 */
+.entry-viewer {
+    display: flex;
+    padding: 4px 4px 0 0;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.entry-viewer-meta-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.entry-viewer-id-field,
+.entry-format-control {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+}
+
+.entry-viewer-id-field {
+    flex: 1;
+}
+
+.entry-format-control {
+    flex-shrink: 0;
+}
+
+/* 查看弹窗标签：固定宽度并右对齐，让 Message ID 和 Fields 共用同一基线。 */
+.entry-viewer-field-label {
+    width: 82px;
+    flex: 0 0 82px;
+    color: var(--el-text-color-regular);
+    text-align: right;
+}
+
+.viewer-message-id-input {
+    width: 220px;
+}
+
+/* Fields 行：标签从内容顶部开始对齐，JSON 区域占满剩余宽度。 */
+.entry-viewer-fields-row {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+/* Entry Fields 查看区：解析提示和完整 JSON 内容组成稳定的纵向布局。 */
+.entry-fields-viewer {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.entry-format-label {
+    flex-shrink: 0;
+    color: var(--el-text-color-secondary);
+}
+
+.entry-format-tip-icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    font-size: 16px;
+    color: var(--el-text-color-secondary);
+    cursor: help;
+}
+
+.entry-format-tip-icon:hover {
+    color: var(--el-color-primary);
+}
+
+/* Stream 解析说明：固定阅读宽度，并在窄窗口中限制为可视区域宽度。 */
+:global(.stream-value-format-tooltip) {
+    width: 400px;
+    max-width: calc(100vw - 32px);
+    line-height: 1.6;
+    white-space: normal;
+}
+
+.entry-format-warning :deep(.el-alert__title) {
+    white-space: pre-line;
 }
 
 /* Entry Fields 文本域：强制输入 JSON 对象，适合直接粘贴结构化 Stream 字段。 */

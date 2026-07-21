@@ -31,6 +31,7 @@
             v-if="exportSelectionMode"
             mode="export"
             :selected-count="selectedExportCount"
+            :all-selected="isAllExportKeysSelected"
             :loading="isExportingKeys"
             @select-all="handleSelectAllExportKeys"
             @clear="handleClearExportSelection"
@@ -42,6 +43,7 @@
             v-if="batchDeleteSelectionMode"
             mode="batch-delete"
             :selected-count="selectedBatchDeleteCount"
+            :all-selected="isAllBatchDeleteKeysSelected"
             :loading="isBatchDeletingKeys"
             @select-all="handleSelectAllBatchDeleteKeys"
             @clear="handleClearBatchDeleteSelection"
@@ -325,6 +327,8 @@ const {
     selectedBatchDeleteKeys,
     selectedExportCount,
     selectedBatchDeleteCount,
+    isAllExportKeysSelected,
+    isAllBatchDeleteKeysSelected,
     isSelectionMode,
     isRowSelectionChecked,
     isRowSelectionIndeterminate,

@@ -1,8 +1,4 @@
-/**
- * Redis 主进程侧通用数据工具。
- * 只放纯函数和默认常量，不持有 Redis 连接，也不依赖 Electron IPC，便于连接管理器保持聚焦。
- */
-
+// Redis 主进程侧通用数据工具：只放纯函数和默认常量，不持有 Redis 连接，也不依赖 Electron IPC。
 export const DEFAULT_CONNECT_TIMEOUT_MS = 10000
 export const DEFAULT_COMMAND_TIMEOUT_MS = 8000
 export const DEFAULT_DATABASE_COUNT = 16
@@ -110,15 +106,18 @@ export const normalizeStreamEntries = (entries = []) => {
     }
 
     return entries.map((entry) => {
-        const id = String(entry?.[0] ?? '')
+        const id = entry?.[0]?.toString('utf8') ?? ''
         const rawFields = Array.isArray(entry?.[1]) ? entry[1] : []
         const fields = []
 
         // Stream entry 字段和值交替出现，前端展示前先转成稳定的 field/value 数组。
         for (let i = 0; i < rawFields.length; i += 2) {
+            const rawValue = rawFields[i + 1]
+
             fields.push({
-                field: String(rawFields[i] ?? ''),
-                value: String(rawFields[i + 1] ?? '')
+                field: rawFields[i]?.toString('utf8') ?? '',
+                value: rawValue?.toString('utf8') ?? '',
+                valueRawBase64: Buffer.isBuffer(rawValue) ? rawValue.toString('base64') : ''
             })
         }
 

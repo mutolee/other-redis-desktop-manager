@@ -58,6 +58,20 @@ textarea,
     user-select: text;
 }
 
+/* Redis 详情虚拟表格：非操作列允许鼠标选择文本，便于直接复制 Field/Value/Member/Score 等内容。 */
+.virtual-detail-table .virtual-table-cell:not(.action-cell),
+.virtual-detail-table .virtual-table-cell:not(.action-cell) * {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* Redis 详情虚拟表格操作列：按钮区域仍保持不可选，避免拖选文本时误选图标或按钮文案。 */
+.virtual-detail-table .action-cell,
+.virtual-detail-table .action-cell * {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
 /* 禁选工具类：用于标题栏、按钮组等需要显式禁用文本选择的交互区域。 */
 .no-select {
     -webkit-user-select: none;
@@ -106,6 +120,11 @@ textarea::-webkit-scrollbar-thumb:hover,
 }
 
 /* Section: Element Plus 全局覆盖 */
+/* Dialog 主体：统一标题栏与内容区之间的顶部间距，保留其余方向的默认 padding。 */
+.el-dialog__body {
+    padding-top: 20px !important;
+}
+
 /* 弹出菜单：限制宽度，避免长连接名或长命令撑开浮层。 */
 .el-menu.el-menu--popup {
     width: 250px;

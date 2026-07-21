@@ -742,39 +742,48 @@ class RedisConnectionManager {
             const ttl = (results[1] && typeof results[1][1] === 'number') ? results[1][1] : -1
             const memoryUsage = Number(results[2]?.[1] ?? 0) || 0
             // 根据类型获取值
-            let value = null, size = 0, cursor = undefined
+            let value = null, size = 0, cursor = undefined, valueRawBase64 = undefined
             if (keyType === 'string') {
-                const v = await this.runWithCommandTimeout(connection.config, () => connection.redis.get(key), 'GET')
+                const rawValue = await this.runWithCommandTimeout(connection.config, () => connection.redis.getBuffer(key), 'GETBUFFER')
+                const v = rawValue ? rawValue.toString('utf8') : ''
                 value = typeof v === 'string' ? v : ''
-                size = value.length
+                valueRawBase64 = rawValue ? rawValue.toString('base64') : ''
+                size = rawValue ? rawValue.length : 0
             } else if (keyType === 'hash') {
                 // Hash 的 HSCAN COUNT 只是建议值，详情页首屏改用 HKEYS + HMGET 做严格 100 条分页。
                 size = await this.runWithCommandTimeout(connection.config, () => connection.redis.hlen(key), 'HLEN')
                 const fields = await this.runWithCommandTimeout(connection.config, () => connection.redis.hkeys(key), 'HKEYS')
                 const pageFields = Array.isArray(fields) ? fields.slice(0, Math.min(size, DEFAULT_PAGE_SIZE)) : []
                 const values = pageFields.length > 0
-                    ? await this.runWithCommandTimeout(connection.config, () => connection.redis.hmget(key, ...pageFields), 'HMGET')
+                    ? await this.runWithCommandTimeout(connection.config, () => connection.redis.hmgetBuffer(key, ...pageFields), 'HMGET')
                     : []
                 value = pageFields.map((field, index) => ({
                     field,
-                    value: values[index] ?? ''
+                    value: values[index]?.toString('utf8') ?? '',
+                    valueRawBase64: values[index]?.toString('base64') ?? ''
                 }))
             } else if (keyType === 'list') {
                 // List 可能非常大，详情页首屏只加载第一段，后续由加载更多/加载全部继续拉取。
                 size = await this.runWithCommandTimeout(connection.config, () => connection.redis.llen(key), 'LLEN')
                 const stop = Math.min(size - 1, DEFAULT_PAGE_SIZE - 1)
                 const v = stop >= 0
-                    ? await this.runWithCommandTimeout(connection.config, () => connection.redis.lrange(key, 0, stop), 'LRANGE')
+                    ? await this.runWithCommandTimeout(connection.config, () => connection.redis.lrangeBuffer(key, 0, stop), 'LRANGE')
                     : []
-                value = v || []
+                value = (v || []).map((item) => ({
+                    value: item?.toString('utf8') ?? '',
+                    valueRawBase64: item?.toString('base64') ?? ''
+                }))
             } else if (keyType === 'set') {
                 // Set 可能非常大，首屏只通过 SSCAN 拉取第一段，避免 SMEMBERS 一次性阻塞主进程和渲染进程。
                 size = await this.runWithCommandTimeout(connection.config, () => connection.redis.scard(key), 'SCARD')
                 const scanResult = size > 0
-                    ? await this.runWithCommandTimeout(connection.config, () => connection.redis.sscan(key, '0', 'COUNT', DEFAULT_PAGE_SIZE), 'SSCAN')
+                    ? await this.runWithCommandTimeout(connection.config, () => connection.redis.sscanBuffer(key, '0', 'COUNT', DEFAULT_PAGE_SIZE), 'SSCAN')
                     : ['0', []]
-                cursor = String(scanResult?.[0] ?? '0')
-                value = Array.isArray(scanResult?.[1]) ? scanResult[1] : []
+                cursor = scanResult?.[0]?.toString('utf8') ?? '0'
+                value = (Array.isArray(scanResult?.[1]) ? scanResult[1] : []).map((item) => ({
+                    member: item?.toString('utf8') ?? '',
+                    memberRawBase64: item?.toString('base64') ?? ''
+                }))
             } else if (keyType === 'zset') {
                 // ZSet 可能用于排行榜等大数据集合，首屏只按分数倒序加载第一段。
                 size = await this.runWithCommandTimeout(connection.config, () => connection.redis.zcard(key), 'ZCARD')
@@ -782,13 +791,17 @@ class RedisConnectionManager {
                 const v = stop >= 0
                     ? await this.runWithCommandTimeout(
                         connection.config,
-                        () => connection.redis.zrevrange(key, 0, stop, 'WITHSCORES'),
+                        () => connection.redis.zrevrangeBuffer(key, 0, stop, 'WITHSCORES'),
                         'ZREVRANGE'
                     )
                     : []
                 value = []
                 for (let i = 0; i < v.length; i += 2) {
-                    value.push({member: v[i], score: parseFloat(v[i + 1]) || 0})
+                    value.push({
+                        member: v[i]?.toString('utf8') ?? '',
+                        memberRawBase64: v[i]?.toString('base64') ?? '',
+                        score: parseFloat(v[i + 1]?.toString('utf8')) || 0
+                    })
                 }
             } else if (keyType === 'stream') {
                 // Stream 可能持续增长，详情页首屏默认按最新消息倒序加载第一段。
@@ -796,13 +809,13 @@ class RedisConnectionManager {
                 const streamEntries = size > 0
                     ? await this.runWithCommandTimeout(
                         connection.config,
-                        () => connection.redis.xrevrange(key, '+', '-', 'COUNT', DEFAULT_PAGE_SIZE),
+                        () => connection.redis.xrevrangeBuffer(key, '+', '-', 'COUNT', DEFAULT_PAGE_SIZE),
                         'XREVRANGE'
                     )
                     : []
                 value = normalizeStreamEntries(streamEntries)
             }
-            return {success: true, data: {key, type: keyType, ttl, value, size, memoryUsage, cursor}}
+            return {success: true, data: {key, type: keyType, ttl, value, valueRawBase64, size, memoryUsage, cursor}}
         } catch (error) {
             return {success: false, error: error.message || tMain('redis.getKeyDataFail')}
         }
@@ -854,15 +867,16 @@ class RedisConnectionManager {
             const safeFields = Array.isArray(fields) ? fields : []
             const pageFields = safeFields.slice(normalizedStart, normalizedStop + 1)
             const values = pageFields.length > 0
-                ? await this.runWithCommandTimeout(connection.config, () => connection.redis.hmget(key, ...pageFields), 'HMGET')
+                ? await this.runWithCommandTimeout(connection.config, () => connection.redis.hmgetBuffer(key, ...pageFields), 'HMGET')
                 : []
             const items = []
 
-            // HMGET 返回值顺序和 pageFields 一致，转换成表格可以直接消费的 Field/Value 结构。
+            // ioredis hmgetBuffer 返回值顺序和 pageFields 一致，同时保留 UTF-8 文本和解析器需要的原始字节。
             for (let i = 0; i < pageFields.length; i += 1) {
                 items.push({
                     field: pageFields[i],
-                    value: values[i] ?? ''
+                    value: values[i]?.toString('utf8') ?? '',
+                    valueRawBase64: values[i]?.toString('base64') ?? ''
                 })
             }
 
@@ -903,11 +917,15 @@ class RedisConnectionManager {
             // 先读取总长度，再按请求范围读取元素，前端据此判断是否还有后续数据。
             const pipe = connection.redis.pipeline()
             pipe.llen(key)
-            pipe.lrange(key, normalizedStart, normalizedStop)
+            pipe.lrangeBuffer(key, normalizedStart, normalizedStop)
             const results = await this.runWithCommandTimeout(connection.config, () => pipe.exec(), 'List分页管道')
 
             const size = Number(results?.[0]?.[1] ?? 0)
-            const items = Array.isArray(results?.[1]?.[1]) ? results[1][1] : []
+            const rawItems = Array.isArray(results?.[1]?.[1]) ? results[1][1] : []
+            const items = rawItems.map((item) => ({
+                value: item?.toString('utf8') ?? '',
+                valueRawBase64: item?.toString('base64') ?? ''
+            }))
 
             return {
                 success: true,
@@ -947,13 +965,16 @@ class RedisConnectionManager {
             // SSCAN 的 COUNT 是建议值，不保证严格条数；前端通过 cursor 是否为 0 判断是否还有后续。
             const pipe = connection.redis.pipeline()
             pipe.scard(key)
-            pipe.sscan(key, normalizedCursor, 'COUNT', normalizedCount)
+            pipe.sscanBuffer(key, normalizedCursor, 'COUNT', normalizedCount)
             const results = await this.runWithCommandTimeout(connection.config, () => pipe.exec(), 'Set分页扫描管道')
 
             const size = Number(results?.[0]?.[1] ?? 0)
             const scanResult = Array.isArray(results?.[1]?.[1]) ? results[1][1] : ['0', []]
-            const nextCursor = String(scanResult?.[0] ?? '0')
-            const items = Array.isArray(scanResult?.[1]) ? scanResult[1] : []
+            const nextCursor = scanResult?.[0]?.toString('utf8') ?? '0'
+            const items = (Array.isArray(scanResult?.[1]) ? scanResult[1] : []).map((item) => ({
+                member: item?.toString('utf8') ?? '',
+                memberRawBase64: item?.toString('base64') ?? ''
+            }))
 
             return {
                 success: true,
@@ -991,18 +1012,19 @@ class RedisConnectionManager {
             // 先读取总长度，再按分数倒序读取当前页，前端据此判断是否还有后续数据。
             const pipe = connection.redis.pipeline()
             pipe.zcard(key)
-            pipe.zrevrange(key, normalizedStart, normalizedStop, 'WITHSCORES')
+            pipe.zrevrangeBuffer(key, normalizedStart, normalizedStop, 'WITHSCORES')
             const results = await this.runWithCommandTimeout(connection.config, () => pipe.exec(), 'ZSet分页管道')
 
             const size = Number(results?.[0]?.[1] ?? 0)
             const rawItems = Array.isArray(results?.[1]?.[1]) ? results[1][1] : []
             const items = []
 
-            // ZREVRANGE WITHSCORES 返回 member/score 交替数组，前端需要结构化对象。
+            // ioredis zrevrangeBuffer 返回 member/score 交替 Buffer，Member 保留原始字节供解析器使用。
             for (let i = 0; i < rawItems.length; i += 2) {
                 items.push({
-                    member: rawItems[i],
-                    score: parseFloat(rawItems[i + 1]) || 0
+                    member: rawItems[i]?.toString('utf8') ?? '',
+                    memberRawBase64: rawItems[i]?.toString('base64') ?? '',
+                    score: parseFloat(rawItems[i + 1]?.toString('utf8')) || 0
                 })
             }
 
@@ -1044,7 +1066,7 @@ class RedisConnectionManager {
             // 先读总长度，再按 ID 范围倒序读取当前页，前端据此判断是否还有更多。
             const pipe = connection.redis.pipeline()
             pipe.xlen(key)
-            pipe.xrevrange(key, maxId || '+', minId || '-', 'COUNT', normalizedCount)
+            pipe.xrevrangeBuffer(key, maxId || '+', minId || '-', 'COUNT', normalizedCount)
             const results = await this.runWithCommandTimeout(connection.config, () => pipe.exec(), 'Stream分页管道')
 
             const size = Number(results?.[0]?.[1] ?? 0)

@@ -5,6 +5,23 @@ export default {
             reset: 'Reset to Defaults',
             unknownError: 'Unknown error'
         },
+        valueFormats: {
+            label: 'Format',
+            text: 'Text/UTF-8',
+            json: 'JSON',
+            hex: 'Hex',
+            binary: 'Binary',
+            javaSerialization: 'Java Serialization',
+            phpSerialize: 'PHP Serialize',
+            pickle: 'Pickle',
+            messagePack: 'MessagePack',
+            gzip: 'Gzip',
+            zlibDeflate: 'Zlib/Deflate',
+            brotli: 'Brotli',
+            messages: {
+                parseFail: 'Failed to parse this format. Showing raw value: {value}'
+            }
+        },
         router: {
             splash: {
                 title: 'Starting...',
@@ -130,6 +147,7 @@ export default {
                 latestVersion: 'Latest Version',
                 releaseNotesTitle: 'Release notes:',
                 noReleaseNotes: 'No release notes for this version.',
+                newBadge: 'new',
                 updateNow: 'Update',
                 noUpdate: 'You are already on the latest version: V{value}',
                 checkFail: 'Failed to check for updates',
@@ -875,6 +893,7 @@ export default {
                 messageId: 'Message ID',
                 addEntryTitle: 'Add Stream Entry',
                 viewEntryTitle: 'View Stream Entry',
+                valueFormatTip: 'The selected format is applied to every Field Value in this Entry. Field names are not parsed, and values that fail to parse keep their raw content.',
                 autoMessageIdPlaceholder: 'Leave empty to auto-generate (*)',
                 randomGenerate: 'Generate',
                 fieldsJsonPlaceholder: 'Enter a JSON object, for example: {"key1":"value1","key2":"value2"}',

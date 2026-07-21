@@ -155,12 +155,27 @@
             </template>
 
             <div class="item-viewer">
-                <div class="viewer-index">
-                    <span class="viewer-label">{{ t('keyDetailPanels.common.labels.index') }}:</span>
-                    <span class="viewer-index-value">{{ viewingItem?.displayIndex }}</span>
+                <div class="viewer-toolbar">
+                    <div class="viewer-index">
+                        <span class="viewer-label">{{ t('keyDetailPanels.common.labels.index') }}:</span>
+                        <span class="viewer-index-value">{{ viewingItem?.displayIndex }}</span>
+                    </div>
+
+                    <div class="viewer-format-control">
+                        <span class="viewer-label">{{ t('valueFormats.label') }}</span>
+                        <ValueFormatSelect v-model="selectedValueFormat"/>
+                    </div>
                 </div>
 
-                <ViewerTextarea :model-value="viewingItem?.value || ''" :height="180"/>
+                <el-alert
+                    v-if="viewingItemFormatWarning"
+                    :title="viewingItemFormatWarning"
+                    type="warning"
+                    show-icon
+                    :closable="false"
+                />
+
+                <ViewerTextarea :model-value="viewingItemDisplayValue" :height="180"/>
             </div>
 
             <template #footer>
@@ -182,8 +197,10 @@ import {Copy as DocumentCopy, Delete, Edit, Plus, PreviewOpen as View, Search} f
 import DialogTitle from '../common/DialogTitle.vue'
 import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
+import ValueFormatSelect from '../common/ValueFormatSelect.vue'
 import DetailLoadFooter from './common/DetailLoadFooter.vue'
 import {useI18n} from '../../i18n/index.js'
+import {DEFAULT_VALUE_FORMAT_TYPE, formatValueForDisplay} from '../../utils/valueFormatters/index.js'
 
 // 国际化文案读取函数：驱动 List 表格、弹窗和操作反馈文案。
 const {t} = useI18n()
@@ -232,6 +249,9 @@ const itemForm = reactive({
 // 当前查看中的 List 行：用于查看弹窗展示完整内容。
 const viewingItem = ref(null)
 
+// 当前查看弹窗的 value 展示格式：只影响预览和复制内容，不参与 List 写入。
+const selectedValueFormat = ref(DEFAULT_VALUE_FORMAT_TYPE)
+
 // 保存元素状态：控制新增/编辑确认按钮 loading 和重复提交保护。
 const savingItem = ref(false)
 
@@ -261,13 +281,52 @@ const itemEditorTitle = computed(() => (
 // 是否允许提交元素表单：Value 不能为空，且当前没有提交中的写操作。
 const canSubmitItem = computed(() => Boolean(itemForm.value.trim()) && !savingItem.value)
 
+/**
+ * 统一 List 元素结构，兼容旧数据中直接保存字符串的情况。
+ * @param {unknown} item Redis List 元素
+ * @returns {{value:string, valueRawBase64:string}} 文本值和原始字节
+ */
+const normalizeListItem = (item) => {
+    if (item && typeof item === 'object' && Object.prototype.hasOwnProperty.call(item, 'value')) {
+        return {
+            value: String(item.value ?? ''),
+            valueRawBase64: typeof item.valueRawBase64 === 'string' ? item.valueRawBase64 : ''
+        }
+    }
+
+    return {
+        value: String(item ?? ''),
+        valueRawBase64: ''
+    }
+}
+
 // List 表格数据：把 Redis 返回数组转换为带真实下标和展示序号的行结构。
 const rows = computed(() => {
     return loadedItems.value.map((item, index) => ({
         index,
         displayIndex: index + 1,
-        value: String(item)
+        value: item.value,
+        valueRawBase64: item.valueRawBase64
     }))
+})
+
+// 当前查看元素的解析结果：优先使用 main 进程返回的原始字节，保证二进制格式解析准确。
+const viewingItemFormatResult = computed(() => formatValueForDisplay(
+    viewingItem.value?.value,
+    selectedValueFormat.value,
+    {rawBase64: viewingItem.value?.valueRawBase64}
+))
+
+// 查看弹窗 textarea 内容：展示当前格式解析后的文本，解析失败时 formatter 会保留原始内容。
+const viewingItemDisplayValue = computed(() => viewingItemFormatResult.value.text)
+
+// 查看弹窗解析失败提示：沿用 String 详情页的统一提示文案。
+const viewingItemFormatWarning = computed(() => {
+    if (viewingItemFormatResult.value.success) {
+        return ''
+    }
+
+    return t('valueFormats.messages.parseFail', {value: viewingItemFormatResult.value.error})
 })
 
 // 过滤后的表格数据：搜索框为空时展示全部，输入后按 Value 做不区分大小写匹配。
@@ -373,7 +432,7 @@ const handleSaveItem = async () => {
 
             // LSET 成功后只替换当前已加载区间内对应下标的值，避免重拉列表造成滚动位置跳动。
             if (itemForm.index >= 0 && itemForm.index < nextItems.length) {
-                nextItems[itemForm.index] = value
+                nextItems[itemForm.index] = normalizeListItem(value)
                 loadedItems.value = nextItems
             }
 
@@ -385,9 +444,9 @@ const handleSaveItem = async () => {
 
             // 左侧插入会影响首屏内容，直接插入当前已加载列表头部；右侧插入只在已加载全部时追加展示。
             if (itemForm.direction === 'left') {
-                loadedItems.value = [value, ...loadedItems.value]
+                loadedItems.value = [normalizeListItem(value), ...loadedItems.value]
             } else if (wasFullyLoaded) {
-                loadedItems.value = [...loadedItems.value, value]
+                loadedItems.value = [...loadedItems.value, normalizeListItem(value)]
             }
 
             listTotalSize.value += 1
@@ -420,8 +479,8 @@ const handleCopyItemCommand = async (row) => {
  */
 const handleCopyViewingItem = async () => {
     try {
-        // 查看弹窗复制的是当前展示内容，不是表格里的 LSET 命令。
-        await navigator.clipboard.writeText(viewingItem.value?.value || '')
+        // 查看弹窗复制当前解析后的展示内容，不是表格里的 LSET 命令。
+        await navigator.clipboard.writeText(viewingItemDisplayValue.value)
         ElMessage.success(t('keyDetailPanels.common.messages.contentCopied'))
     } catch (error) {
         ElMessage.error(error.message || t('keyDetailPanels.common.messages.copyContentFail'))
@@ -434,6 +493,7 @@ const handleCopyViewingItem = async () => {
  */
 const handleViewItem = (row) => {
     viewingItem.value = row
+    selectedValueFormat.value = DEFAULT_VALUE_FORMAT_TYPE
     itemViewerVisible.value = true
 }
 
@@ -496,7 +556,9 @@ const fetchListRange = async (start, stop) => {
     }
 
     return {
-        items: Array.isArray(response.data?.items) ? response.data.items : [],
+        items: Array.isArray(response.data?.items)
+            ? response.data.items.map(normalizeListItem)
+            : [],
         size: Number(response.data?.size) || 0
     }
 }
@@ -557,7 +619,9 @@ const handleLoadAll = async () => {
 watch(
     () => props.keyData,
     (nextKeyData) => {
-        loadedItems.value = Array.isArray(nextKeyData?.value) ? [...nextKeyData.value] : []
+        loadedItems.value = Array.isArray(nextKeyData?.value)
+            ? nextKeyData.value.map(normalizeListItem)
+            : []
         listTotalSize.value = Number(nextKeyData?.size) || loadedItems.value.length
         isLoadingMore.value = false
         isLoadingAll.value = false
@@ -741,19 +805,38 @@ watch(
     margin-left: 0;
 }
 
-/* 查看弹窗主体：Index 和 Value 上下排列，给长内容留出呼吸感。 */
+/* 查看弹窗主体：工具栏、解析提示和 Value 上下排列。 */
 .item-viewer {
     display: flex;
     flex-direction: column;
     gap: 12px;
 }
 
+/* 查看弹窗工具栏：左侧展示 Index，右侧切换 value 解析格式。 */
+.viewer-toolbar {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
 /* 查看弹窗 Index 行：展示当前元素所在位置。 */
 .viewer-index {
     display: flex;
+    min-width: 0;
+    flex: 1;
     align-items: center;
     gap: 8px;
     color: var(--el-text-color-regular);
+}
+
+/* 查看弹窗格式控制：和 Index 保持同一行，窄窗口下保持固定宽度。 */
+.viewer-format-control {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 8px;
 }
 
 .viewer-label {

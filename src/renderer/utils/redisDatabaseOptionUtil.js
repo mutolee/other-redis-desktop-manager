@@ -1,8 +1,4 @@
-/**
- * redisDatabaseOptionUtil.js
- * 描述：Redis DB 下拉列表展示工具。负责数据库数量兜底、Keyspace 数量映射和 DBSize 文案格式化。
- */
-
+// Redis DB 下拉列表工具：负责数据库数量兜底、Keyspace 数量映射和 DBSize 文案格式化。
 export const DEFAULT_DATABASE_COUNT = 16
 
 /**

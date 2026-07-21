@@ -139,5 +139,13 @@ watch(contentText, () => {
     white-space: normal;
     overflow-wrap: anywhere;
     word-break: break-word;
+    -webkit-user-select: text;
+    user-select: text;
+}
+
+/* Tooltip 内容：弹层挂载在 body 下，需要显式覆盖全局禁选规则，保证省略内容可选中复制。 */
+:global(.overflow-tooltip-popper *) {
+    -webkit-user-select: text;
+    user-select: text;
 }
 </style>

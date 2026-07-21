@@ -45,7 +45,7 @@ import {useUserSettingsStore} from '../stores/modules/userSettingsStore.js'
 import {eventBus} from '../utils/eventBus.js'
 
 // 侧边栏宽度：用户可以通过 SideBarDrag 拖拽调整。
-const sideBarWidth = ref(300)
+const sideBarWidth = ref(260)
 const SIDE_BAR_AUTO_COLLAPSE_WIDTH = 1180
 
 // 基础 UI 状态：侧边栏折叠时需要关闭搜索/导出模式。

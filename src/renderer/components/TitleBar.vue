@@ -24,6 +24,7 @@
                         <el-icon size="18">
                             <SettingTwo/>
                         </el-icon>
+                        <span v-if="hasAvailableUpdate" class="settings-update-dot"></span>
                     </span>
                 </button>
             </el-tooltip>
@@ -81,6 +82,7 @@ import CloseConfirmDialog from "./dialog/CloseConfirmDialog.vue";
 import SettingsDrawer from "./drawer/SettingsDrawer.vue";
 import {storeToRefs} from "pinia";
 import {useUserSettingsStore} from "../stores/modules/userSettingsStore.js";
+import {useAppUpdateStore} from "../stores/modules/appUpdateStore.js";
 import {applyThemeTransition} from "../utils/themeTransition.js";
 import {useI18n} from "../i18n/index.js";
 
@@ -94,6 +96,8 @@ const {t} = useI18n()
 // 用户设置 Store：主题、主题色、关闭行为配置驱动标题栏按钮和关闭逻辑。
 const {theme, color, closeManagement} = storeToRefs(useUserSettingsStore())
 const {setTheme, setColor} = useUserSettingsStore()
+const appUpdateStore = useAppUpdateStore()
+const {hasAvailableUpdate} = storeToRefs(appUpdateStore)
 
 // 暗黑模式状态：用于切换按钮图标和 tooltip 文案。
 const isDarkMode = computed(() => {
@@ -112,6 +116,8 @@ onMounted(() => {
     // 初始化已持久化的主题与主题色，保证标题栏首次渲染时状态正确。
     setTheme(theme.value)
     setColor(color.value)
+
+    initializeAutoUpdateCheck()
 })
 
 onBeforeUnmount(() => {
@@ -178,6 +184,15 @@ const onClose = () => {
  */
 const openSetting = () => {
     showSettingsDrawerVisible.value = true
+}
+
+/**
+ * 初始化自动版本检查。
+ * 先恢复 Pinia 中持久化的更新提示状态，再静默请求 GitHub Release 最新版本。
+ */
+const initializeAutoUpdateCheck = async () => {
+    await appUpdateStore.initializeUpdateState()
+    appUpdateStore.checkForUpdates().catch(() => {})
 }
 </script>
 
@@ -267,6 +282,7 @@ const openSetting = () => {
 
 /* 设置按钮内部 chip：让设置按钮悬浮反馈更克制，不占满标题栏高度。 */
 .ctrl.ctrl-settings .chip {
+    position: relative;
     height: 30px;
     width: 30px;
     border-radius: 5px;
@@ -274,6 +290,17 @@ const openSetting = () => {
     align-items: center;
     justify-content: center;
     transition: all 0.15s ease;
+}
+
+.settings-update-dot {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 7px;
+    height: 7px;
+    border: 1px solid var(--titlebar-bg-color);
+    border-radius: 50%;
+    background: #f56c6c;
 }
 
 .ctrl.ctrl-settings:hover .chip {

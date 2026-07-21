@@ -12,11 +12,23 @@
 </template>
 
 <script setup>
-import {watch} from 'vue'
+import {onBeforeUnmount, onMounted, watch} from 'vue'
 import {useI18n} from './i18n/index.js'
+import {setupGlobalTextSelectionClear} from './utils/textSelectionUtil.js'
 
 // 国际化配置：Element Plus locale 和 html lang 都由用户语言设置驱动。
 const {language, elementLocale} = useI18n()
+
+// 全局文本选区清理：解决局部可选文本选中后，点击禁选区域旧选区不消失的问题。
+let cleanupTextSelectionClear = null
+
+onMounted(() => {
+    cleanupTextSelectionClear = setupGlobalTextSelectionClear()
+})
+
+onBeforeUnmount(() => {
+    cleanupTextSelectionClear?.()
+})
 
 watch(
     language,

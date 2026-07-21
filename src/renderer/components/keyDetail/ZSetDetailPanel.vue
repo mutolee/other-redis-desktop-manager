@@ -164,15 +164,38 @@
                 <DialogTitle :icon="View" :title="t('keyDetailPanels.common.viewMemberTitle')"/>
             </template>
 
-            <el-form label-width="82px" class="item-viewer-form">
-                <el-form-item :label="t('keyDetailPanels.common.labels.score')">
-                    <el-input :model-value="viewingItem.scoreText" readonly style="width: 300px"/>
-                </el-form-item>
+            <div class="item-viewer">
+                <div class="viewer-meta-row">
+                    <div class="viewer-score-field">
+                        <span class="viewer-field-label">{{ t('keyDetailPanels.common.labels.score') }}</span>
+                        <el-input
+                            :model-value="viewingItem.scoreText"
+                            class="viewer-score-input"
+                            readonly
+                        />
+                    </div>
 
-                <el-form-item :label="t('keyDetailPanels.common.labels.member')">
-                    <ViewerTextarea :model-value="viewingItem.member" :height="160"/>
-                </el-form-item>
-            </el-form>
+                    <div class="viewer-format-control">
+                        <span class="viewer-format-label">{{ t('valueFormats.label') }}</span>
+                        <ValueFormatSelect v-model="selectedValueFormat"/>
+                    </div>
+                </div>
+
+                <div class="viewer-member-row">
+                    <span class="viewer-field-label">{{ t('keyDetailPanels.common.labels.member') }}</span>
+                    <div class="member-viewer">
+                        <el-alert
+                            v-if="viewingItemFormatWarning"
+                            :title="viewingItemFormatWarning"
+                            type="warning"
+                            show-icon
+                            :closable="false"
+                        />
+
+                        <ViewerTextarea :model-value="viewingItemDisplayValue" :height="160"/>
+                    </div>
+                </div>
+            </div>
 
             <template #footer>
                 <!-- 查看弹窗底部操作区：复制当前完整 Member 内容。 -->
@@ -193,8 +216,10 @@ import {Copy as DocumentCopy, Delete, Edit, Plus, PreviewOpen as View, Search} f
 import DialogTitle from '../common/DialogTitle.vue'
 import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
+import ValueFormatSelect from '../common/ValueFormatSelect.vue'
 import DetailLoadFooter from './common/DetailLoadFooter.vue'
 import {useI18n} from '../../i18n/index.js'
+import {DEFAULT_VALUE_FORMAT_TYPE, formatValueForDisplay} from '../../utils/valueFormatters/index.js'
 
 // 国际化文案读取函数：驱动 ZSet 表格、弹窗和操作反馈文案。
 const {t} = useI18n()
@@ -236,8 +261,12 @@ const itemForm = reactive({
 // 当前查看中的成员数据：查看弹窗只读展示，避免直接绑定表格行对象。
 const viewingItem = reactive({
     member: '',
+    memberRawBase64: '',
     scoreText: ''
 })
+
+// 当前查看弹窗的 Member 展示格式：只影响预览和复制内容，不参与 ZSet 写入。
+const selectedValueFormat = ref(DEFAULT_VALUE_FORMAT_TYPE)
 
 // 保存成员状态：控制新增/编辑确认按钮 loading 和重复提交保护。
 const savingItem = ref(false)
@@ -280,6 +309,17 @@ const canSubmitItem = computed(() => {
 })
 
 /**
+ * 统一 ZSet 成员结构，兼容旧数据中缺少原始字节字段的情况。
+ * @param {unknown} item Redis ZSet 成员
+ * @returns {{member:string, memberRawBase64:string, score:number}} 成员文本、原始字节和分数
+ */
+const normalizeZSetItem = (item) => ({
+    member: String(item?.member ?? ''),
+    memberRawBase64: typeof item?.memberRawBase64 === 'string' ? item.memberRawBase64 : '',
+    score: Number(item?.score) || 0
+})
+
+/**
  * 格式化 Score 展示文本。
  * Redis score 是数值，这里保留原始数值语义，同时避免整数展示成 1000.0。
  * @param {number|string} score Redis ZSet score
@@ -309,10 +349,30 @@ const rows = computed(() => {
 
     return sortedItems.map((item, index) => ({
         rank: index + 1,
-        member: String(item?.member ?? ''),
+        member: item.member,
+        memberRawBase64: item.memberRawBase64,
         score: Number(item?.score) || 0,
         scoreText: formatScore(item?.score)
     }))
+})
+
+// 当前查看 Member 的解析结果：优先使用 main 进程返回的原始字节，保证二进制格式解析准确。
+const viewingItemFormatResult = computed(() => formatValueForDisplay(
+    viewingItem.member,
+    selectedValueFormat.value,
+    {rawBase64: viewingItem.memberRawBase64}
+))
+
+// 查看弹窗 textarea 内容：展示当前格式解析后的 Member 文本。
+const viewingItemDisplayValue = computed(() => viewingItemFormatResult.value.text)
+
+// 查看弹窗解析失败提示：沿用 String 详情页的统一提示文案。
+const viewingItemFormatWarning = computed(() => {
+    if (viewingItemFormatResult.value.success) {
+        return ''
+    }
+
+    return t('valueFormats.messages.parseFail', {value: viewingItemFormatResult.value.error})
 })
 
 /**
@@ -435,9 +495,9 @@ const handleSaveItem = async () => {
 
         if (isEditMode.value) {
             const nextItems = loadedItems.value.filter((item) => item.member !== originalMember)
-            loadedItems.value = sortZSetItems([...nextItems, {member, score}])
+            loadedItems.value = sortZSetItems([...nextItems, normalizeZSetItem({member, score})])
         } else {
-            loadedItems.value = sortZSetItems([{member, score}, ...loadedItems.value])
+            loadedItems.value = sortZSetItems([normalizeZSetItem({member, score}), ...loadedItems.value])
             zsetTotalSize.value += 1
         }
 
@@ -470,8 +530,8 @@ const handleCopyItemCommand = async (row) => {
  */
 const handleCopyViewingItem = async () => {
     try {
-        // 查看弹窗复制的是当前展示内容，不是表格里的 ZADD 命令。
-        await navigator.clipboard.writeText(viewingItem.member || '')
+        // 查看弹窗复制当前解析后的 Member 内容，不是表格里的 ZADD 命令。
+        await navigator.clipboard.writeText(viewingItemDisplayValue.value)
         ElMessage.success(t('keyDetailPanels.common.messages.contentCopied'))
     } catch (error) {
         ElMessage.error(error.message || t('keyDetailPanels.common.messages.copyContentFail'))
@@ -484,7 +544,9 @@ const handleCopyViewingItem = async () => {
  */
 const handleViewItem = (row) => {
     viewingItem.member = row.member
+    viewingItem.memberRawBase64 = row.memberRawBase64
     viewingItem.scoreText = row.scoreText
+    selectedValueFormat.value = DEFAULT_VALUE_FORMAT_TYPE
     itemViewerVisible.value = true
 }
 
@@ -539,7 +601,9 @@ const fetchZSetRange = async (start, stop) => {
     }
 
     return {
-        items: Array.isArray(response.data?.items) ? response.data.items : [],
+        items: Array.isArray(response.data?.items)
+            ? response.data.items.map(normalizeZSetItem)
+            : [],
         size: Number(response.data?.size) || 0
     }
 }
@@ -600,7 +664,9 @@ const handleLoadAll = async () => {
 watch(
     () => props.keyData,
     (nextKeyData) => {
-        loadedItems.value = Array.isArray(nextKeyData?.value) ? [...nextKeyData.value] : []
+        loadedItems.value = Array.isArray(nextKeyData?.value)
+            ? nextKeyData.value.map(normalizeZSetItem)
+            : []
         zsetTotalSize.value = Number(nextKeyData?.size) || loadedItems.value.length
         isLoadingMore.value = false
         isLoadingAll.value = false
@@ -817,9 +883,75 @@ watch(
 
 
 /* 成员编辑表单：给弹窗内容留出稳定间距，避免输入区贴边。 */
-.item-editor-form,
-.item-viewer-form {
+.item-editor-form {
     padding: 4px 4px 0 0;
+}
+
+/* 查看弹窗主体：Score/格式控制和 Member 内容形成清晰的两行布局。 */
+.item-viewer {
+    display: flex;
+    padding: 4px 4px 0 0;
+    flex-direction: column;
+    gap: 18px;
+}
+
+/* 查看弹窗首行：Score 靠左，展示格式靠右。 */
+.viewer-meta-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.viewer-score-field,
+.viewer-format-control {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+}
+
+.viewer-score-field {
+    flex: 1;
+}
+
+.viewer-format-control {
+    flex-shrink: 0;
+}
+
+/* 查看弹窗标签：固定宽度并右对齐，让 Score 和 Member 共用同一基线。 */
+.viewer-field-label {
+    width: 82px;
+    flex: 0 0 82px;
+    color: var(--el-text-color-regular);
+    text-align: right;
+}
+
+.viewer-score-input {
+    width: 220px;
+}
+
+/* Member 行：标签从 textarea 顶部开始对齐，内容区占满剩余宽度。 */
+.viewer-member-row {
+    display: flex;
+    min-width: 0;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+/* 查看弹窗 Member 区域：格式控制、解析提示和文本内容上下排列。 */
+.member-viewer {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.viewer-format-label {
+    flex-shrink: 0;
+    color: var(--el-text-color-secondary);
 }
 
 /* ZSet Member 文本域：固定高度，长 Member 通过内部滚动查看或编辑。 */
