@@ -18,9 +18,10 @@
   <img alt="Element Plus" src="https://img.shields.io/badge/Element%20Plus-UI-409eff" />
   <img alt="Redis" src="https://img.shields.io/badge/Redis-Client-dc382d?logo=redis&logoColor=white" />
   <img alt="Windows" src="https://img.shields.io/badge/Windows-Supported-0078d4?logo=windows&logoColor=white" />
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-Supported-000000?logo=apple&logoColor=white" />
 </p>
 
-Other Redis Desktop Manager focuses on everyday Redis data management. It provides connection management, key browsing, key detail editing, a command drawer, Redis server information, theme switching, basic internationalization, and update checking in a polished desktop experience.
+Other Redis Desktop Manager focuses on everyday Redis data management. It provides connection management, key browsing, key detail editing, multi-format value previews, a command drawer, Redis server information, theme switching, Chinese and English interfaces, and update checking in a polished desktop experience.
 
 ## Preview
 
@@ -72,11 +73,18 @@ Other Redis Desktop Manager focuses on everyday Redis data management. It provid
 - Redis modes: supports standalone Redis, Sentinel configuration, and Cluster configuration.
 - Key browsing: dynamic DB list, DB size display, SCAN pagination, load more, load all, list view, tree view, and virtualized rendering.
 - Key details: separated detail panels for String, Hash, List, Set, ZSet, and Stream.
+- Value previews: displays Redis bytes as Text/UTF-8, JSON, Hex, Binary, Java Serialization, PHP Serialize, Pickle, MessagePack, Gzip, Zlib/Deflate, or Brotli without changing the stored data.
 - Data operations: view, copy, add, edit, delete, rename, update TTL, and delete keys for common Redis data types.
 - Command drawer: runs commands through an independent Redis connection with DB selection, command history, examples, and result display.
 - Redis information: server status, memory usage, CPU data, keyspace charts, and full INFO table with search.
-- Desktop experience: dark and light themes, theme color switching, tray support, custom window controls, internationalization, and update checking.
+- Desktop experience: dark and light themes, theme color switching, tray support, custom window controls, Chinese and English interfaces, and automatic or manual update checking through GitHub Releases.
 - Engineering structure: clear main / preload / renderer boundaries with Pinia, Dexie, ioredis, ECharts, and electron-builder.
+
+### Value Preview Scope
+
+- String values, Hash field values, List items, Set members, and ZSet members can be parsed in the detail preview. Keys, Hash field names, list indexes, and ZSet scores remain unchanged.
+- Stream previews apply the selected format to every Field Value in the current Entry, then display the result as JSON. Field names and Message IDs are not parsed.
+- Parsing only affects preview and copy operations. Editing and saving continue to use the original Redis value.
 
 ## Tech Stack
 
@@ -182,8 +190,8 @@ release
 Typical Windows outputs:
 
 ```text
-release/Other Redis Desktop Manager-Setup-1.0.2-x64.exe
-release/Other Redis Desktop Manager-Portable-1.0.2-x64.exe
+release/Other Redis Desktop Manager-Setup-1.0.5-x64.exe
+release/Other Redis Desktop Manager-Portable-1.0.5-x64.exe
 ```
 
 - `Setup`: NSIS installer. Install it before use.

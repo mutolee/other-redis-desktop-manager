@@ -18,9 +18,10 @@
   <img alt="Element Plus" src="https://img.shields.io/badge/Element%20Plus-UI-409eff" />
   <img alt="Redis" src="https://img.shields.io/badge/Redis-Client-dc382d?logo=redis&logoColor=white" />
   <img alt="Windows" src="https://img.shields.io/badge/Windows-Supported-0078d4?logo=windows&logoColor=white" />
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-Supported-000000?logo=apple&logoColor=white" />
 </p>
 
-Other Redis Desktop Manager 关注日常 Redis 数据管理体验，提供连接管理、Key 浏览、Key 详情编辑、命令行操作、Redis 服务信息查看、主题切换、基础国际化和版本检查等能力。
+Other Redis Desktop Manager 关注日常 Redis 数据管理体验，提供连接管理、Key 浏览、Key 详情编辑、Value 多格式预览、命令行操作、Redis 服务信息查看、主题切换、中英文界面和版本检查等能力。
 
 ## 界面预览
 
@@ -72,10 +73,17 @@ Other Redis Desktop Manager 关注日常 Redis 数据管理体验，提供连接
 - Redis 模式：支持普通 Redis、哨兵配置和集群配置。
 - Key 浏览：支持动态 DB 列表、DBSize 展示、SCAN 分页、加载更多、加载全部、列表视图、树形视图和虚拟列表渲染。
 - Key 详情：按 String、Hash、List、Set、ZSet、Stream 拆分独立详情面板，便于不同类型独立维护。
+- Value 预览：支持将 Redis 原始字节以 Text/UTF-8、JSON、Hex、Binary、Java Serialization、PHP Serialize、Pickle、MessagePack、Gzip、Zlib/Deflate 和 Brotli 格式解析展示，不修改 Redis 中保存的数据。
 - 数据操作：支持常见类型的查看、复制、添加、编辑、删除、重命名、TTL 修改和 Key 删除。
 - 命令行面板：使用独立 Redis 连接执行命令，支持 DB 选择、命令历史、命令示例和执行结果展示。
 - Redis 信息：支持查看服务器状态、内存、CPU、Keyspace 图表和完整 INFO 明细。
-- 桌面体验：支持深色 / 浅色主题、主题色切换、系统托盘、窗口控制、国际化和版本检查。
+- 桌面体验：支持深色 / 浅色主题、主题色切换、系统托盘、窗口控制、中英文界面，以及基于 GitHub Releases 的自动和手动更新检查。
+
+### Value 预览范围
+
+- String Value、Hash Field Value、List 元素、Set Member 和 ZSet Member 均可在详情预览中解析；Key、Hash Field 名称、List 下标和 ZSet Score 不参与解析。
+- Stream 会将所选格式应用于当前 Entry 的所有 Field Value，再组合成 JSON 展示；Field 名称和 Message ID 不参与解析。
+- 解析只影响查看和复制，编辑与保存仍然使用 Redis 原始数据。
 
 ## 技术栈
 
@@ -158,8 +166,8 @@ release
 常见产物：
 
 ```text
-release/Other Redis Desktop Manager-Setup-1.0.2-x64.exe
-release/Other Redis Desktop Manager-Portable-1.0.2-x64.exe
+release/Other Redis Desktop Manager-Setup-1.0.5-x64.exe
+release/Other Redis Desktop Manager-Portable-1.0.5-x64.exe
 ```
 
 - `Setup`：NSIS 安装包，需要安装后使用。
