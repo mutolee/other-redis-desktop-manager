@@ -542,6 +542,7 @@ export default {
             exactSearch: '精准搜索',
             addKey: '添加 Key',
             refreshKeyList: '刷新 Key 列表',
+            initialLoading: '正在加载 Key 列表...',
             searchLoading: '正在搜索 Key...',
             searchResultLabel: '搜索结果：',
             listView: '列表视图',

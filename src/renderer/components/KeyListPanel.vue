@@ -52,8 +52,8 @@
         />
 
         <KeyListBody
-            :loading="isKeyListOverlayLoading"
-            :loading-text="keyListBusyText"
+            :loading="isKeyListBodyLoading"
+            :loading-text="keyListLoadingText"
             :empty-visible="isEmptyStateVisible"
             :empty-description="emptyDescription"
             :rows="visibleRows"
@@ -147,7 +147,7 @@
  * Key 列表面板组件。
  * 负责加载当前连接与当前 db 下的 Key 列表，并支持树形/列表视图切换、搜索、分页扫描与选择 Key。
  */
-import {computed, ref, shallowRef, watch} from 'vue'
+import {computed, onBeforeUnmount, ref, shallowRef, watch} from 'vue'
 import {ElMessage, ElMessageBox} from 'element-plus'
 import {ListTwo, TreeList} from '@icon-park/vue-next'
 import {storeToRefs} from 'pinia'
@@ -218,6 +218,12 @@ const cursor = ref('0')
 
 // 当前是否还有更多 Key 可以继续扫描。
 const hasMore = ref(false)
+
+// 扫描版本号：刷新、搜索、切库或卸载后递增，用于丢弃已经过期的类型补充结果。
+const scanGeneration = ref(0)
+
+// 类型补充队列保持串行，避免“加载全部”时向远程 Redis 并发发送大量 TYPE pipeline。
+let keyTypeHydrationQueue = Promise.resolve()
 
 // 首次加载或重置加载的状态，用于控制整体刷新与空态显示。
 const isInitialLoading = ref(false)
@@ -400,10 +406,17 @@ const isKeyListBusy = computed(() => isExportingKeys.value || isImportingKeys.va
 // 列表遮罩状态：重操作和回车搜索都会覆盖列表主体，但只有重操作会拦截刷新等行为。
 const isKeyListOverlayLoading = computed(() => isKeyListBusy.value || isSearchingKeys.value)
 
-// 列表遮罩文案：区分导入、导出、批量删除和回车搜索，避免用户误判当前动作。
-const keyListBusyText = computed(() => {
+// 首次扫描也显示明确 loading，避免远程 Redis 尚未返回 Key 名称时列表区域白屏。
+const isKeyListBodyLoading = computed(() => isInitialLoading.value || isKeyListOverlayLoading.value)
+
+// 列表遮罩文案：区分首次加载、搜索、导入、导出和批量删除，避免用户误判当前动作。
+const keyListLoadingText = computed(() => {
     if (isSearchingKeys.value) {
         return t('keyList.searchLoading')
+    }
+
+    if (isInitialLoading.value) {
+        return t('keyList.initialLoading')
     }
 
     if (isImportingKeys.value) {
@@ -432,7 +445,8 @@ const listRows = computed(() =>
         depth: 0,
         displayKey: item.key,
         isDirectory: false,
-        type: item.type
+        type: item.type,
+        typeLoading: Boolean(item.typeLoading)
     }))
 )
 
@@ -950,7 +964,8 @@ const handleKeyCreated = (createdKey) => {
 
     const nextKey = {
         key: createdKey.key,
-        type: createdKey.type
+        type: createdKey.type,
+        typeLoading: false
     }
 
     allScannedKeys.value = [
@@ -1130,6 +1145,100 @@ const handleSubmitSearch = async () => {
 }
 
 /**
+ * 将 SCAN 或精确查询结果转换为列表统一数据结构。
+ * SCAN 只返回 Key 名称，先用类型加载态渲染；精确查询已经包含 TYPE 结果，可直接展示。
+ * @param {Array<string|{key:string,type?:string}>} keys IPC 返回的 Key 数据
+ * @returns {Array<{key:string,type:string|null,typeLoading:boolean}>} 可写入列表的数据
+ */
+const normalizeLoadedKeyRows = (keys = []) => {
+    return (Array.isArray(keys) ? keys : [])
+        .map((item) => {
+            if (typeof item === 'string') {
+                return {
+                    key: item,
+                    type: null,
+                    typeLoading: true
+                }
+            }
+
+            const key = String(item?.key ?? '')
+            const type = item?.type ? String(item.type) : null
+            return {
+                ...item,
+                key,
+                type,
+                typeLoading: !type
+            }
+        })
+        // Redis 允许空字符串作为 Key，因此这里只过滤无效行，不按 key 的真值过滤。
+        .filter(Boolean)
+}
+
+/**
+ * 异步补充一批已显示 Key 的类型。
+ * 类型失败时保留 Key 名称并回退为 unknown，不让次要信息加载失败阻塞列表浏览。
+ * @param {string[]} keys 待补充类型的 Key 名称
+ * @param {number} generation 发起任务时的扫描版本号
+ * @param {string} connectionId 发起任务时的连接 ID
+ */
+const hydrateKeyTypes = async (keys, generation, connectionId) => {
+    if (generation !== scanGeneration.value || String(connectionId) !== String(props.tabId)) {
+        return
+    }
+
+    let response = null
+    try {
+        response = await window.api.redis.getKeyTypes(connectionId, keys)
+    } catch {
+        response = null
+    }
+
+    // 刷新、搜索、切库或切换连接后，旧请求结果不允许覆盖新列表。
+    if (generation !== scanGeneration.value || String(connectionId) !== String(props.tabId)) {
+        return
+    }
+
+    const typeMap = response?.success
+        ? new Map((response.data ?? []).map((item) => [item.key, item.type || 'unknown']))
+        : new Map(keys.map((key) => [key, 'unknown']))
+
+    // 按 Key 局部合并类型；已被删除或重命名的行不会重新插入列表。
+    allScannedKeys.value = allScannedKeys.value.map((item) => {
+        if (!typeMap.has(item.key)) {
+            return item
+        }
+
+        return {
+            ...item,
+            type: typeMap.get(item.key),
+            typeLoading: false
+        }
+    })
+}
+
+/**
+ * 将类型补充任务加入串行队列。
+ * 加载全部可能连续扫描多批 Key，串行 pipeline 能控制远程 Redis 的瞬时请求压力。
+ * @param {string[]} keys 待补充类型的 Key 名称
+ * @param {number} generation 当前扫描版本号
+ * @param {string} connectionId 当前连接 ID
+ */
+const enqueueKeyTypeHydration = (keys, generation, connectionId) => {
+    const uniqueKeys = Array.from(new Set(
+        (keys ?? []).filter((key) => key !== null && key !== undefined)
+    ))
+    if (uniqueKeys.length === 0) {
+        return
+    }
+
+    keyTypeHydrationQueue = keyTypeHydrationQueue
+        .catch(() => {
+            // 上一批类型查询失败不应阻断后续批次。
+        })
+        .then(() => hydrateKeyTypes(uniqueKeys, generation, connectionId))
+}
+
+/**
  * 扫描当前连接下的 Key 列表。
  * @param {boolean} reset 是否重置扫描状态并从头开始
  * @param {{ preserveList?: boolean }} options 额外控制项
@@ -1141,7 +1250,13 @@ const loadKeys = async (reset = false, options = {}) => {
         return
     }
 
+    const requestGeneration = reset
+        ? scanGeneration.value + 1
+        : scanGeneration.value
+    const requestConnectionId = props.tabId
+
     if (reset) {
+        scanGeneration.value = requestGeneration
         isInitialLoading.value = true
         // 手动刷新时保留当前列表，避免刷新按钮点击后先清空页面造成闪动。
         if (!preserveList) {
@@ -1152,8 +1267,9 @@ const loadKeys = async (reset = false, options = {}) => {
     }
 
     try {
-        // 精确搜索使用 TYPE；普通列表和模糊搜索继续按游标执行单轮 SCAN。
-        const response = activeSearchMode.value === 'exact'
+        const isExactSearchRequest = activeSearchMode.value === 'exact'
+        // 精确搜索使用 TYPE；普通列表和模糊搜索先按游标执行单轮 SCAN，类型随后异步补充。
+        const response = isExactSearchRequest
             ? await window.api.redis.findExactKey(props.tabId, activeSearchPattern.value)
             : await window.api.redis.scanKeys(
                 props.tabId,
@@ -1164,12 +1280,16 @@ const loadKeys = async (reset = false, options = {}) => {
                     : currentScanCount.value
             )
 
+        if (requestGeneration !== scanGeneration.value || String(requestConnectionId) !== String(props.tabId)) {
+            return
+        }
+
         if (!response.success) {
             ElMessage.error(`${t('keyList.messages.loadFail')}: ${response.error || t('common.unknownError')}`)
             return
         }
 
-        const nextKeys = response.data?.keys ?? []
+        const nextKeys = normalizeLoadedKeyRows(response.data?.keys ?? [])
 
         // 重置加载直接覆盖，继续加载则拼接到现有结果后面。
         allScannedKeys.value = reset
@@ -1178,6 +1298,14 @@ const loadKeys = async (reset = false, options = {}) => {
 
         cursor.value = String(response.data?.cursor ?? '0')
         hasMore.value = Boolean(response.data?.hasMore)
+
+        if (!isExactSearchRequest) {
+            enqueueKeyTypeHydration(
+                nextKeys.filter((item) => item.typeLoading).map((item) => item.key),
+                requestGeneration,
+                requestConnectionId
+            )
+        }
     } catch (error) {
         ElMessage.error(`${t('keyList.messages.loadFail')}: ${error.message || error}`)
     } finally {
@@ -1198,9 +1326,11 @@ const loadAll = async () => {
     }
 
     isLoadingAll.value = true
+    const requestGeneration = scanGeneration.value
+    const requestConnectionId = props.tabId
 
     try {
-        while (hasMore.value) {
+        while (hasMore.value && requestGeneration === scanGeneration.value) {
             // 按当前搜索模式持续向后扫描，直到游标归零。
             const response = await window.api.redis.scanKeys(
                 props.tabId,
@@ -1209,13 +1339,24 @@ const loadAll = async () => {
                 currentScanCount.value
             )
 
-            if (!response.success) {
+            if (requestGeneration !== scanGeneration.value || String(requestConnectionId) !== String(props.tabId)) {
                 break
             }
 
-            allScannedKeys.value = [...allScannedKeys.value, ...(response.data?.keys ?? [])]
+            if (!response.success) {
+                ElMessage.error(`${t('keyList.messages.loadAllFail')}: ${response.error || t('common.unknownError')}`)
+                break
+            }
+
+            const nextKeys = normalizeLoadedKeyRows(response.data?.keys ?? [])
+            allScannedKeys.value = [...allScannedKeys.value, ...nextKeys]
             cursor.value = String(response.data?.cursor ?? '0')
             hasMore.value = Boolean(response.data?.hasMore)
+            enqueueKeyTypeHydration(
+                nextKeys.filter((item) => item.typeLoading).map((item) => item.key),
+                requestGeneration,
+                requestConnectionId
+            )
         }
     } catch (error) {
         ElMessage.error(`${t('keyList.messages.loadAllFail')}: ${error.message || error}`)
@@ -1274,6 +1415,7 @@ watch(
         if (nextTabId) {
             loadKeys(true)
         } else {
+            scanGeneration.value += 1
             resetScanState()
         }
     },
@@ -1313,6 +1455,11 @@ watch(
     () => props.resetVersion,
     () => resetKeyList()
 )
+
+// 组件卸载后使排队中或执行中的类型任务失效，避免关闭连接页签后继续回写状态。
+onBeforeUnmount(() => {
+    scanGeneration.value += 1
+})
 </script>
 
 <style scoped>

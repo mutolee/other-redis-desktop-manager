@@ -32,8 +32,13 @@ const REDIS_IPC_HANDLERS = [
     },
     {
         channel: 'redis:scan-keys',
-        description: 'SCAN 扫描 Key',
+        description: 'SCAN 扫描 Key 名称',
         handler: (connectionId, cursor, pattern, count) => redisConnectionManager.scanKeys(connectionId, cursor, pattern, count)
+    },
+    {
+        channel: 'redis:get-key-types',
+        description: '批量获取 Key 类型',
+        handler: (connectionId, keys) => redisConnectionManager.getKeyTypes(connectionId, keys)
     },
     {
         channel: 'redis:find-exact-key',

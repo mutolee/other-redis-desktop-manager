@@ -542,6 +542,7 @@ export default {
             exactSearch: 'Exact Search',
             addKey: 'Add Key',
             refreshKeyList: 'Refresh Key List',
+            initialLoading: 'Loading Key list...',
             searchLoading: 'Searching Keys...',
             searchResultLabel: 'Search results:',
             listView: 'List View',

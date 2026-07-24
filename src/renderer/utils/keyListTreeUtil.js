@@ -63,12 +63,14 @@ export const buildKeyTreeMap = (flatKeys, maxTreeDepth = 4, keySeparator = ':') 
                     displayKey: formatTreePartLabel(parts[index]),
                     isDirectory,
                     type: isDirectory ? '' : keyData.type,
+                    typeLoading: isDirectory ? false : Boolean(keyData.typeLoading),
                     keyCount: isDirectory ? 0 : 1
                 })
             } else if (!isDirectory) {
                 // 真实 Key 节点可能重复扫描到，最终以最新类型为准。
                 const currentNode = treeMap.get(nodeId)
                 currentNode.type = keyData.type
+                currentNode.typeLoading = Boolean(keyData.typeLoading)
                 currentNode.isDirectory = false
                 currentNode.keyCount = 1
             }

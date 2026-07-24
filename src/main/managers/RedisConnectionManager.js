@@ -383,13 +383,14 @@ class RedisConnectionManager {
     }
 
     /**
-     * SCAN 扫描 key 列表（带类型）
+     * SCAN 扫描 Key 名称列表。
      * 每次调用只推进一轮游标，COUNT 仅表示本轮建议扫描量，不作为必须凑满的结果数量。
+     * Key 类型由独立的批量接口异步补充，避免远程 Redis 的 TYPE 往返阻塞首批列表渲染。
      * @param {string|number} connectionId - 当前连接 ID
      * @param {string|number} cursor - Redis SCAN 游标
      * @param {string} pattern - Redis MATCH 模式
      * @param {number} count - 本轮建议扫描数量
-     * @returns {Promise<{success:boolean,data?:Object,error?:string}>} 当前批次 Key、下一游标与分页状态
+     * @returns {Promise<{success:boolean,data?:Object,error?:string}>} 当前批次 Key 名称、下一游标与分页状态
      */
     async scanKeys(connectionId, cursor = '0', pattern = '*', count = DEFAULT_PAGE_SIZE) {
         try {
@@ -409,20 +410,58 @@ class RedisConnectionManager {
             )
             const nextCursor = String(result[0])
             const keys = Array.from(new Set(result[1] || []))
-            const keyList = []
-            if (keys.length > 0) {
-                // 批量 pipeline 获取类型，避免逐个 type 调用增加网络开销
-                const pipe = connection.redis.pipeline()
-                for (const k of keys) pipe.type(k)
-                const types = await this.runWithCommandTimeout(connection.config, () => pipe.exec(), 'TYPE管道')
-                for (let i = 0; i < keys.length; i += 1) {
-                    keyList.push({key: keys[i], type: (types[i] && types[i][1]) || 'unknown'})
-                }
-            }
             // cursor === '0' 表示扫描完成
-            return {success: true, data: {cursor: nextCursor, keys: keyList, hasMore: nextCursor !== '0'}}
+            return {success: true, data: {cursor: nextCursor, keys, hasMore: nextCursor !== '0'}}
         } catch (error) {
             return {success: false, error: error.message || tMain('redis.scanFail')}
+        }
+    }
+
+    /**
+     * 批量获取指定 Key 的 Redis 数据类型。
+     * 使用单个 pipeline 合并远程请求，供渲染进程在 Key 名称已经展示后异步补充类型标签。
+     * @param {string|number} connectionId - 当前连接 ID
+     * @param {string[]} keys - 待查询类型的 Key 名称列表
+     * @returns {Promise<{success:boolean,data?:Array<{key:string,type:string}>,error?:string}>} Key 与类型的对应列表
+     */
+    async getKeyTypes(connectionId, keys = []) {
+        try {
+            const connection = this.getActiveConnection(connectionId)
+            if (!connection || connection.status !== 'connected') {
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
+            }
+
+            const normalizedKeys = Array.from(new Set(
+                (Array.isArray(keys) ? keys : [])
+                    .map((key) => String(key ?? ''))
+            ))
+
+            if (normalizedKeys.length === 0) {
+                return {success: true, data: []}
+            }
+
+            // 一批 Key 只产生一次网络往返，避免 renderer 对远程 Redis 逐条执行 TYPE。
+            const pipe = connection.redis.pipeline()
+            for (const key of normalizedKeys) {
+                pipe.type(key)
+            }
+
+            const results = await this.runWithCommandTimeout(
+                connection.config,
+                () => pipe.exec(),
+                'TYPE管道'
+            )
+            const keyTypes = normalizedKeys.map((key, index) => {
+                const [typeError, type] = results[index] || []
+                return {
+                    key,
+                    type: typeError ? 'unknown' : String(type || 'unknown')
+                }
+            })
+
+            return {success: true, data: keyTypes}
+        } catch (error) {
+            return {success: false, error: error.message || tMain('redis.commandFail')}
         }
     }
 

@@ -64,8 +64,9 @@
                                 :type="getTagType(data[index].type)"
                                 size="small"
                                 class="key-type-tag"
+                                :class="{'is-type-loading': data[index].typeLoading}"
                             >
-                                {{ String(data[index].type || '').toUpperCase() }}
+                                {{ data[index].typeLoading ? '...' : String(data[index].type || 'unknown').toUpperCase() }}
                             </el-tag>
 
                             <!-- Key 名称：树形模式显示当前层级名称，列表模式显示完整 Key。 -->
@@ -267,6 +268,13 @@ const getRowClass = (row) => ({
     font-size: 11px;
     flex-shrink: 0;
     text-align: center;
+}
+
+/* 类型异步补充态：Key 名称已可浏览时，用弱化标签提示类型仍在远程查询。 */
+.key-type-tag.is-type-loading {
+    color: var(--el-text-color-placeholder);
+    border-color: var(--el-border-color-lighter);
+    background: var(--el-fill-color-light);
 }
 
 /* Key 名称区域：在有限宽度下省略超长内容。 */

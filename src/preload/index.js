@@ -62,8 +62,10 @@ contextBridge.exposeInMainWorld('api', {
         executeCommand: (connectionId, command, args) => ipcRenderer.invoke('redis:execute-command', connectionId, command, args),
         // 获取 Redis 服务器实时信息
         getServerInfo: (connectionId) => ipcRenderer.invoke('redis:get-server-info', connectionId),
-        // SCAN 扫描 Key 列表
+        // SCAN 扫描 Key 名称列表
         scanKeys: (connectionId, cursor, pattern, count) => ipcRenderer.invoke('redis:scan-keys', connectionId, cursor, pattern, count),
+        // 批量补充已扫描 Key 的类型，真实 TYPE pipeline 仍在 main 进程执行
+        getKeyTypes: (connectionId, keys) => ipcRenderer.invoke('redis:get-key-types', connectionId, keys),
         // TYPE 按完整 Key 名精确查询
         findExactKey: (connectionId, key) => ipcRenderer.invoke('redis:find-exact-key', connectionId, key),
         // 按 pattern 预览 Key 列表
