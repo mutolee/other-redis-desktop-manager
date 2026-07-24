@@ -26,7 +26,7 @@
         </template>
 
         <!-- 抽屉主体：顶部目录信息固定，Key 预览列表占满剩余高度。 -->
-        <div class="delete-directory-drawer" v-loading="loading || deleting">
+        <div class="delete-directory-drawer" v-loading="deleting">
             <div class="directory-toolbar">
                 <div class="directory-info">
                     <span class="connection-name">{{ connectionName || t('deleteDirectoryKeys.currentConnection') }}</span>
@@ -45,12 +45,12 @@
                 </div>
                 <div class="summary-item">
                     <span>{{ t('deleteDirectoryKeys.summary.keyCount') }}</span>
-                    <strong>{{ formatNumber(keys.length) }}</strong>
+                    <strong>{{ formatNumber(loading ? scannedCount : keys.length) }}</strong>
                 </div>
                 <div class="summary-item">
                     <span>{{ t('deleteDirectoryKeys.summary.status') }}</span>
-                    <strong :class="hasMore ? 'is-warning' : 'is-success'">
-                        {{ hasMore ? t('deleteDirectoryKeys.summary.reachedLimit') : t('deleteDirectoryKeys.summary.completed') }}
+                    <strong :class="scanStatus.className">
+                        {{ scanStatus.text }}
                     </strong>
                 </div>
             </div>
@@ -67,7 +67,7 @@
                 <span>{{ t('deleteDirectoryKeys.table.key') }}</span>
             </div>
 
-            <div class="list-body">
+            <div class="list-body" v-loading="loading && keys.length === 0">
                 <el-empty v-if="!loading && keys.length === 0" :description="t('deleteDirectoryKeys.empty')"/>
 
                 <AutoResizer v-else class="directory-auto-resizer">
@@ -105,7 +105,7 @@
                     type="danger"
                     :icon="Delete"
                     :loading="deleting"
-                    :disabled="loading || hasMore || keys.length === 0"
+                    :disabled="loading || scanFailed || hasMore || keys.length === 0"
                     @click="handleDeleteKeys"
                 >
                     {{ t('deleteDirectoryKeys.deleteButton') }}
@@ -116,7 +116,7 @@
 </template>
 
 <script setup>
-import {computed, ref, watch} from 'vue'
+import {computed, onDeactivated, onUnmounted, ref, watch} from 'vue'
 import {ElAutoResizer as AutoResizer, ElMessage, ElMessageBox, FixedSizeList} from 'element-plus'
 import {Delete, Refresh} from '@icon-park/vue-next'
 import {useI18n} from '../../i18n/index.js'
@@ -164,9 +164,10 @@ const drawerVisible = computed({
     set: (value) => emit('update:visible', value)
 })
 
-// 扫描和删除状态：分别控制预览列表 loading 与危险操作 loading。
+// 扫描、删除状态和请求序号：旧批次返回后通过序号阻止继续拉取或覆盖新目录。
 const loading = ref(false)
 const deleting = ref(false)
+let directoryScanRequestId = 0
 
 // 抽屉动画完成状态：避免打开动画期间 props 变化和 opened 同时触发两次扫描。
 const drawerOpened = ref(false)
@@ -174,9 +175,34 @@ const drawerOpened = ref(false)
 // 目录下 Key 预览列表：由 main 进程按 SCAN MATCH 返回，虚拟列表承载大数据量渲染。
 const keys = ref([])
 
-// 是否达到预览上限：达到上限时不允许删除，避免用户误以为只删除了完整目录。
+// 扫描完整性状态：达到上限或中途失败时都不允许删除，避免把部分预览误当成完整目录。
 const hasMore = ref(false)
+const scanFailed = ref(false)
 const maxKeys = ref(DEFAULT_MAX_KEYS)
+
+// 当前分批扫描累计发现的 Key 数量。
+const scannedCount = ref(0)
+
+// 扫描状态文案和颜色：区分扫描中、失败、达到上限和完整结束。
+const scanStatus = computed(() => {
+    if (loading.value) {
+        return {
+            className: 'is-loading',
+            text: t('deleteDirectoryKeys.summary.scanning')
+        }
+    }
+
+    if (scanFailed.value) {
+        return {
+            className: 'is-danger',
+            text: t('deleteDirectoryKeys.summary.failed')
+        }
+    }
+
+    return hasMore.value
+        ? {className: 'is-warning', text: t('deleteDirectoryKeys.summary.reachedLimit')}
+        : {className: 'is-success', text: t('deleteDirectoryKeys.summary.completed')}
+})
 
 /**
  * 格式化整数。
@@ -186,33 +212,66 @@ const maxKeys = ref(DEFAULT_MAX_KEYS)
 const formatNumber = (value) => Number(value || 0).toLocaleString()
 
 /**
- * 扫描当前目录下的 Key。
- * 只做预览，不删除数据；真正删除前仍会二次确认。
+ * 分批扫描当前目录下的 Key。
+ * renderer 持有 cursor 并逐批展示；这里只做预览，真正删除前仍会二次确认。
  */
 const fetchDirectoryKeys = async () => {
-    if (!props.connectionId || !props.matchPattern || loading.value) {
+    if (!props.connectionId || !props.matchPattern) {
         return
     }
 
+    const requestId = ++directoryScanRequestId
     loading.value = true
+    keys.value = []
+    scannedCount.value = 0
+    hasMore.value = false
+    scanFailed.value = false
 
     try {
-        const response = await window.api.redis.scanKeysByPattern(props.connectionId, props.matchPattern, {
-            maxKeys: props.maxKeys
-        })
+        const keySet = new Set()
+        let cursor = '0'
 
-        if (!response.success) {
-            ElMessage.error(`${t('deleteDirectoryKeys.messages.loadFail')}: ${response.error || t('common.unknownError')}`)
-            return
-        }
+        do {
+            const remaining = props.maxKeys - keySet.size
+            if (remaining <= 0 || requestId !== directoryScanRequestId || !props.visible) {
+                break
+            }
 
-        keys.value = response.data?.keys || []
-        hasMore.value = Boolean(response.data?.hasMore)
-        maxKeys.value = response.data?.maxKeys || props.maxKeys
+            const response = await window.api.redis.scanKeysByPattern(props.connectionId, props.matchPattern, {
+                cursor
+            })
+
+            if (requestId !== directoryScanRequestId || !props.visible) {
+                return
+            }
+
+            if (!response.success) {
+                scanFailed.value = true
+                ElMessage.error(`${t('deleteDirectoryKeys.messages.loadFail')}: ${response.error || t('common.unknownError')}`)
+                return
+            }
+
+            const batchRemaining = props.maxKeys - keySet.size
+            const unseenBatchKeys = (response.data?.keys || []).filter((key) => !keySet.has(key))
+            unseenBatchKeys.slice(0, batchRemaining).forEach((key) => keySet.add(key))
+
+            cursor = String(response.data?.cursor ?? '0')
+            keys.value = Array.from(keySet).sort((left, right) => left.localeCompare(right))
+            scannedCount.value = keySet.size
+            hasMore.value = keySet.size >= props.maxKeys
+                && (Boolean(response.data?.hasMore) || unseenBatchKeys.length > batchRemaining)
+        } while (cursor !== '0' && keySet.size < props.maxKeys)
+
+        maxKeys.value = props.maxKeys
     } catch (error) {
-        ElMessage.error(`${t('deleteDirectoryKeys.messages.loadFail')}: ${error.message || error}`)
+        if (requestId === directoryScanRequestId && props.visible) {
+            scanFailed.value = true
+            ElMessage.error(`${t('deleteDirectoryKeys.messages.loadFail')}: ${error.message || error}`)
+        }
     } finally {
-        loading.value = false
+        if (requestId === directoryScanRequestId) {
+            loading.value = false
+        }
     }
 }
 
@@ -278,7 +337,9 @@ const handleDrawerOpened = () => {
 const handleDrawerClosed = () => {
     drawerOpened.value = false
     keys.value = []
+    scannedCount.value = 0
     hasMore.value = false
+    scanFailed.value = false
 }
 
 // 抽屉保持打开时切换目录，需要立即重新扫描新目录。
@@ -287,6 +348,27 @@ watch(
     () => {
         if (drawerOpened.value) {
             fetchDirectoryKeys()
+        }
+    }
+)
+
+/**
+ * 让当前目录扫描循环失效，旧批次返回后不得继续请求或覆盖新目录。
+ */
+const invalidateDirectoryScanRequest = () => {
+    directoryScanRequestId += 1
+    loading.value = false
+}
+
+onDeactivated(invalidateDirectoryScanRequest)
+onUnmounted(invalidateDirectoryScanRequest)
+
+// Drawer 开始关闭时立即取消任务，不等待关闭动画结束。
+watch(
+    () => props.visible,
+    (visible) => {
+        if (!visible) {
+            invalidateDirectoryScanRequest()
         }
     }
 )
@@ -387,6 +469,14 @@ watch(
 
 .summary-item strong.is-warning {
     color: var(--el-color-warning);
+}
+
+.summary-item strong.is-loading {
+    color: var(--el-color-primary);
+}
+
+.summary-item strong.is-danger {
+    color: var(--el-color-danger);
 }
 
 .limit-alert {

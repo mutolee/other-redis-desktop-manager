@@ -57,6 +57,7 @@ import {connectConfigRepository} from '../../database/repositories/ConnectConfig
 import {eventBus} from '../../utils/eventBus.js'
 import {normalizeConnectionGroupName} from '../../utils/connectionGroupUtil.js'
 import {useBaseStateStore} from '../../stores/modules/baseStateStore.js'
+import {useConnectionConfigsStore} from '../../stores/modules/connectionConfigsStore.js'
 import DialogTitle from '../common/DialogTitle.vue'
 import {useI18n} from '../../i18n/index.js'
 
@@ -93,6 +94,8 @@ const formRef = ref(null)
 const targetGroupName = ref('')
 // 基础状态 store：移动成功后根据搜索模式决定刷新搜索结果还是全量连接列表。
 const {searchModeState} = storeToRefs(useBaseStateStore())
+// 连接配置 store：移动成功后同步已打开页签中的分组名称。
+const connectionConfigsStore = useConnectionConfigsStore()
 
 // 表单验证规则
 const formRules = {
@@ -157,22 +160,22 @@ const handleSubmit = async () => {
             return
         }
 
-        // 获取当前连接配置的完整数据
-        const currentConnection = await connectConfigRepository.findById(props.connection.id)
-        if (!currentConnection) {
+        // 移动分组只更新 group_name，Repository 内部仍会校验目标分组中的连接名称冲突。
+        const updatedConnection = await connectConfigRepository.updateGroup(
+            props.connection.id,
+            trimmedTargetName
+        )
+        if (!updatedConnection) {
             ElMessage.error(t('dialogs.moveConnection.messages.connectionMissing'))
             return
         }
 
-        // 准备更新数据，只更新 group_name
-        const updateData = {
-            ...currentConnection.modelToObject(),
-            group_name: trimmedTargetName
-        }
-
-        // 调用更新连接配置接口
-        await connectConfigRepository.update(props.connection.id, updateData)
         ElMessage.success(t('dialogs.moveConnection.messages.moveSuccess'))
+
+        connectionConfigsStore.updateOpenedConnectionGroup(
+            props.connection.id,
+            updatedConnection.group_name
+        )
 
         // 如果是搜索模式，刷新搜索结果，否则重新加载连接配置列表
         if (searchModeState.value) {

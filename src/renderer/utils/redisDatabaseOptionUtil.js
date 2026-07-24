@@ -41,7 +41,7 @@ export const normalizeDatabaseCount = (count, currentDbIndex = 0) => {
 /**
  * 将 INFO Keyspace 转成 DB 索引到 Key 数量的映射。
  * Redis INFO 只返回非空 DB，未出现的 DB 由展示层按 0 处理。
- * @param {Array<{db:string, keys:number}>} keyspace - getServerInfo 返回的 keyspace 摘要。
+ * @param {Array<{db:string, keys:number}>} keyspace - Redis INFO Keyspace 摘要。
  * @returns {Object<string, number>} DB 索引到 Key 数量的映射。
  */
 export const buildDbSizeMap = (keyspace = []) => {

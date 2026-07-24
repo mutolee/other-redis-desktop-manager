@@ -47,6 +47,7 @@ import {storeToRefs} from 'pinia'
 import {connectConfigRepository} from '../../database/repositories/ConnectConfigRepository.js'
 import {eventBus} from '../../utils/eventBus.js'
 import {useBaseStateStore} from '../../stores/modules/baseStateStore.js'
+import {useConnectionConfigsStore} from '../../stores/modules/connectionConfigsStore.js'
 import DialogTitle from '../common/DialogTitle.vue'
 import {useI18n} from '../../i18n/index.js'
 
@@ -80,6 +81,8 @@ const formRef = ref(null)
 const newGroupName = ref('')
 // 基础状态 store：重命名成功后根据搜索模式决定刷新搜索结果还是全量连接列表。
 const {searchModeState} = storeToRefs(useBaseStateStore())
+// 连接配置 store：分组重命名后同步所有已打开页签中的配置快照。
+const connectionConfigsStore = useConnectionConfigsStore()
 
 // 表单验证规则
 const formRules = {
@@ -132,6 +135,8 @@ const handleSubmit = async () => {
         // 调用更新分组名称接口
         const updatedCount = await connectConfigRepository.updateGroupName(oldGroupName, trimmedNewName)
         ElMessage.success(t('dialogs.renameGroup.messages.renameSuccess', {value: updatedCount}))
+
+        connectionConfigsStore.renameOpenedConnectionGroup(oldGroupName, trimmedNewName)
 
         // 如果是搜索模式，刷新搜索结果，否则重新加载连接配置列表
         if (searchModeState.value) {

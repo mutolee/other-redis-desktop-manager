@@ -256,6 +256,7 @@ export default {
                 updateSuccess: 'Connection profile updated',
                 updateFail: 'Failed to update connection profile: ',
                 missingId: 'Connection profile ID is missing',
+                closeBeforeEdit: 'This connection is open. Close its tab before editing.',
                 testing: 'Testing connection...',
                 testSuccess: 'Connection test succeeded',
                 testFail: 'Connection test failed: ',
@@ -346,6 +347,7 @@ export default {
                 connecting: 'Connecting command panel: {value} ...',
                 connected: 'Command panel connected. Current database: DB {value}.',
                 disconnected: 'Command panel disconnected.',
+                sourceConnectionClosed: 'The source connection was closed, so the command panel was closed as well.',
                 noConnection: 'No available connection',
                 noConnectionDetail: 'No available connection. Open a Redis connection first.',
                 connectFirst: 'Connect to the database first',
@@ -467,6 +469,7 @@ export default {
             }
         },
         titleBar: {
+            commandHistory: 'Redis Command History',
             settings: 'Settings',
             reload: 'Reload Window',
             switchToLight: 'Switch to Light Mode',
@@ -551,6 +554,7 @@ export default {
             noData: 'No data',
             loadMore: 'Load More',
             loadAll: 'Load All',
+            stopLoading: 'Stop Loading',
             exportSelection: {
                 selectAll: 'Select All',
                 clearSelection: 'Clear',
@@ -656,6 +660,8 @@ export default {
                 scanned: 'Analyzed Keys',
                 totalMemory: 'Total Memory',
                 status: 'Scan Status',
+                scanning: 'Scanning',
+                failed: 'Scan Failed',
                 completed: 'Completed',
                 reachedLimit: 'Limit Reached'
             },
@@ -705,6 +711,63 @@ export default {
                 copyFail: 'Failed to copy command'
             }
         },
+        commandHistory: {
+            title: 'Redis Command History',
+            searchPlaceholder: 'Search connections, commands, args, or errors',
+            empty: 'No Redis command records',
+            limitTip: 'Only the latest {value} records are kept and cleared when the app exits',
+            actions: {
+                search: 'Search',
+                refresh: 'Refresh',
+                clear: 'Clear Log'
+            },
+            filters: {
+                connection: 'All Connections',
+                source: 'All Sources',
+                status: 'All Statuses'
+            },
+            status: {
+                success: 'Success',
+                error: 'Failed',
+                timeout: 'Timeout'
+            },
+            sources: {
+                rendererCommand: 'Renderer Command',
+                commandPanel: 'Command Panel',
+                keyList: 'Key List',
+                keyDetail: 'Key Detail',
+                memoryAnalysis: 'Memory Analysis',
+                directoryPreview: 'Directory Preview',
+                batchDelete: 'Batch Delete',
+                keyExport: 'Key Export',
+                keyImport: 'Key Import',
+                slowLog: 'Slow Query',
+                serverInfo: 'Server Info',
+                databaseSelector: 'Database Switch',
+                connectionTest: 'Connection Test'
+            },
+            pipelineOmitted: '{value} child commands omitted',
+            table: {
+                time: 'Time',
+                connection: 'Connection',
+                db: 'DB',
+                source: 'Source',
+                command: 'Command',
+                args: 'Args',
+                duration: 'Duration',
+                status: 'Status'
+            },
+            confirm: {
+                clearTitle: 'Clear Command History',
+                clearMessage: 'Clear all saved Redis command records? This action cannot be undone.',
+                clearConfirm: 'Clear'
+            },
+            messages: {
+                loadFail: 'Failed to load command history',
+                clearSuccess: '{value} command records cleared',
+                clearFail: 'Failed to clear command history'
+            }
+        },
         deleteDirectoryKeys: {
             title: 'Delete Directory Keys',
             currentConnection: 'Current Connection',
@@ -717,6 +780,8 @@ export default {
                 directory: 'Directory',
                 keyCount: 'Key Count',
                 status: 'Scan Status',
+                scanning: 'Scanning',
+                failed: 'Scan Failed',
                 completed: 'Completed',
                 reachedLimit: 'Limit Reached'
             },
@@ -786,6 +851,8 @@ export default {
                 refresh: 'Refresh',
                 loadMore: 'Load More',
                 loadAll: 'Load All',
+                stopLoading: 'Stop Loading',
+                loadLimitReached: 'Up to {value} items are displayed to keep the page responsive',
                 valuePlaceholder: 'Enter Value',
                 memberPlaceholder: 'Enter Member',
                 viewMemberTitle: 'View Member',
@@ -820,8 +887,19 @@ export default {
                 }
             },
             string: {
+                loadFull: 'Load Full Value',
+                previewNotice: 'Showing the first {loaded} of a {total} Value. Parsing and copying currently use this preview.',
+                confirmLoadFull: {
+                    title: 'Load Large String',
+                    message: 'The complete Value is {value}. Loading it will use more memory and may briefly slow the page. Continue?',
+                    confirmButton: 'Load Anyway'
+                },
                 messages: {
-                    saveFail: 'Failed to save String'
+                    saveFail: 'Failed to save String',
+                    loadFullFail: 'Failed to load the complete String',
+                    loadFullSuccess: 'Complete Value loaded',
+                    loadFullBeforeEdit: 'Load the complete Value before editing',
+                    loadFullBeforeCopy: 'Load the complete Value before copying the SET command'
                 }
             },
             hash: {
@@ -955,6 +1033,8 @@ export default {
         sideBar: {
             messages: {
                 exportModeSelectDisabled: 'Cannot select a connection in export mode',
+                loadConnectionFail: 'Failed to load connections',
+                searchConnectionFail: 'Failed to search connections',
                 openConnectionFail: 'Failed to open connection',
                 deleteConnectionSuccess: 'Connection profile deleted',
                 deleteConnectionFail: 'Failed to delete connection profile',

@@ -58,9 +58,17 @@ contextBridge.exposeInMainWorld('api', {
         connect: (connectionId, config) => ipcRenderer.invoke('redis:connect', connectionId, config),
         // 关闭 Redis 连接
         disconnect: (connectionId) => ipcRenderer.invoke('redis:disconnect', connectionId),
-        // 执行 Redis 命令
-        executeCommand: (connectionId, command, args) => ipcRenderer.invoke('redis:execute-command', connectionId, command, args),
-        // 获取 Redis 服务器实时信息
+        // 执行 Redis 命令；options.source 用于开发者命令记录标识调用来源
+        executeCommand: (connectionId, command, args, options) => ipcRenderer.invoke('redis:execute-command', connectionId, command, args, options),
+        // 分页查询当前会话中的 Redis 命令执行记录
+        getCommandHistory: (options) => ipcRenderer.invoke('redis:get-command-history', options),
+        // 清空当前会话中的 Redis 命令执行记录
+        clearCommandHistory: () => ipcRenderer.invoke('redis:clear-command-history'),
+        // 获取页面 Header 使用的 Redis 运行摘要
+        getServerSummary: (connectionId) => ipcRenderer.invoke('redis:get-server-summary', connectionId),
+        // 获取 DB 选择器使用的数据库数量和 Keyspace 摘要
+        getDatabaseSummary: (connectionId) => ipcRenderer.invoke('redis:get-database-summary', connectionId),
+        // 获取 Redis 详情抽屉使用的完整 INFO ALL 数据
         getServerInfo: (connectionId) => ipcRenderer.invoke('redis:get-server-info', connectionId),
         // SCAN 扫描 Key 名称列表
         scanKeys: (connectionId, cursor, pattern, count) => ipcRenderer.invoke('redis:scan-keys', connectionId, cursor, pattern, count),
@@ -68,7 +76,7 @@ contextBridge.exposeInMainWorld('api', {
         getKeyTypes: (connectionId, keys) => ipcRenderer.invoke('redis:get-key-types', connectionId, keys),
         // TYPE 按完整 Key 名精确查询
         findExactKey: (connectionId, key) => ipcRenderer.invoke('redis:find-exact-key', connectionId, key),
-        // 按 pattern 预览 Key 列表
+        // 按 pattern 和 cursor 拉取一批 Key
         scanKeysByPattern: (connectionId, pattern, options) => ipcRenderer.invoke('redis:scan-keys-by-pattern', connectionId, pattern, options),
         // 批量删除指定 Key
         deleteKeys: (connectionId, keys) => ipcRenderer.invoke('redis:delete-keys', connectionId, keys),
@@ -76,7 +84,7 @@ contextBridge.exposeInMainWorld('api', {
         exportKeys: (connectionId, keys) => ipcRenderer.invoke('redis:export-keys', connectionId, keys),
         // 批量导入 Key 导出文件中的数据
         importKeys: (connectionId, importData, options) => ipcRenderer.invoke('redis:import-keys', connectionId, importData, options),
-        // 分析当前 DB 中 Key 的内存占用排行
+        // 按 cursor 分批分析当前 DB 中 Key 的内存占用
         analyzeKeyMemory: (connectionId, options) => ipcRenderer.invoke('redis:analyze-key-memory', connectionId, options),
         // 读取 Redis 实例级慢查询日志
         getSlowLog: (connectionId, options) => ipcRenderer.invoke('redis:get-slow-log', connectionId, options),
@@ -84,8 +92,10 @@ contextBridge.exposeInMainWorld('api', {
         resetSlowLog: (connectionId) => ipcRenderer.invoke('redis:reset-slow-log', connectionId),
         // 获取 Key 详细信息
         getKeyData: (connectionId, key) => ipcRenderer.invoke('redis:get-key-data', connectionId, key),
+        // 主动读取完整 String Value
+        getFullStringValue: (connectionId, key, options) => ipcRenderer.invoke('redis:get-full-string-value', connectionId, key, options),
         // 分段获取 Hash 字段
-        getHashRange: (connectionId, key, start, stop) => ipcRenderer.invoke('redis:get-hash-range', connectionId, key, start, stop),
+        getHashRange: (connectionId, key, cursor, count) => ipcRenderer.invoke('redis:get-hash-range', connectionId, key, cursor, count),
         // 分段获取 List 元素
         getListRange: (connectionId, key, start, stop) => ipcRenderer.invoke('redis:get-list-range', connectionId, key, start, stop),
         // 分段扫描 Set 成员
@@ -100,7 +110,7 @@ contextBridge.exposeInMainWorld('api', {
         getStreamConsumers: (connectionId, key, groupName) => ipcRenderer.invoke('redis:get-stream-consumers', connectionId, key, groupName),
         // 切换当前连接使用的 Redis 数据库
         selectDatabase: (connectionId, dbIndex) => ipcRenderer.invoke('redis:select-database', connectionId, dbIndex),
-        // 监听 Redis 连接状态变化，并返回当前监听器的解绑函数
+        // 监听 Redis 连接状态变化；reason 用于区分运行时异常和调用方主动关闭，并返回当前监听器的解绑函数
         onConnectionStatusChanged: (callback) => {
             if (typeof callback !== 'function') {
                 return () => {

@@ -88,6 +88,7 @@
             :has-more="hasMore"
             :loading-more="isLoadingMore"
             :loading-all="isLoadingAll"
+            :limit-reached="isLoadLimitReached"
             @load-all="handleLoadAll"
             @load-more="handleLoadMore"
         />
@@ -199,8 +200,16 @@ import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
 import ValueFormatSelect from '../common/ValueFormatSelect.vue'
 import DetailLoadFooter from './common/DetailLoadFooter.vue'
+import {useKeyDetailBatchRequest} from '../../composables/useKeyDetailBatchRequest.js'
 import {useI18n} from '../../i18n/index.js'
 import {DEFAULT_VALUE_FORMAT_TYPE, formatValueForDisplay} from '../../utils/valueFormatters/index.js'
+import {
+    getKeyDetailRangeStop,
+    hasReachedKeyDetailLimit,
+    KEY_DETAIL_LOAD_ALL_BATCH_SIZE,
+    KEY_DETAIL_PAGE_SIZE,
+    takeKeyDetailItemsWithinLimit
+} from '../../utils/keyDetailCollectionUtil.js'
 
 // 国际化文案读取函数：驱动 List 表格、弹窗和操作反馈文案。
 const {t} = useI18n()
@@ -223,11 +232,23 @@ const searchKeyword = ref('')
 // 已加载的 List 元素：首段来自 keyData.value，后续通过加载更多/加载全部追加。
 const loadedItems = ref([])
 
-// 加载更多状态：控制底部“加载更多”按钮 loading 和重复点击保护。
-const isLoadingMore = ref(false)
+// 加载更多请求控制器：切换 Key、停用组件或写入数据后，旧分页结果不得继续回写。
+const {
+    loading: isLoadingMore,
+    beginRequest: beginLoadMoreRequest,
+    isRequestCurrent: isLoadMoreRequestCurrent,
+    finishRequest: finishLoadMoreRequest,
+    invalidateRequest: invalidateLoadMoreRequest
+} = useKeyDetailBatchRequest()
 
-// 加载全部状态：控制底部“加载全部”按钮 loading 和重复点击保护。
-const isLoadingAll = ref(false)
+// 加载全部请求控制器：逐批写入列表，并在组件停用、销毁或切换 Key 时让旧循环失效。
+const {
+    loading: isLoadingAll,
+    beginRequest: beginLoadAllRequest,
+    isRequestCurrent: isLoadAllRequestCurrent,
+    finishRequest: finishLoadAllRequest,
+    invalidateRequest: invalidateLoadAllRequest
+} = useKeyDetailBatchRequest()
 
 // 元素编辑弹窗显示状态：新增和编辑共用，具体模式由 itemEditorMode 控制。
 const itemEditorVisible = ref(false)
@@ -261,14 +282,18 @@ const deletingIndex = ref(-1)
 // 当前 List 总长度：初始来自 keyData.size，后续每次分页请求后用后端 LLEN 结果校正。
 const listTotalSize = ref(0)
 
-// 每次“加载更多”的分页大小：和主进程首屏 List 加载数量保持一致。
-const LIST_PAGE_SIZE = 100
-
 // 虚拟表格固定行高：和当前行内按钮尺寸、文本行高保持一致，保证滚动定位稳定。
 const ROW_HEIGHT = 41
 
-// 当前是否仍有未加载元素：驱动底部按钮禁用状态。
-const hasMore = computed(() => loadedItems.value.length < listTotalSize.value)
+// 是否因为详情展示上限停止加载：底部常驻说明当前并非已经读取完整 List。
+const isLoadLimitReached = computed(() => (
+    hasReachedKeyDetailLimit(loadedItems.value.length, listTotalSize.value)
+))
+
+// 当前是否仍可加载元素：既要存在未读取数据，也不能超过 renderer 展示上限。
+const hasMore = computed(() => (
+    loadedItems.value.length < listTotalSize.value && !isLoadLimitReached.value
+))
 
 // 当前是否处于编辑已有元素模式：编辑时按已有 index 执行 LSET。
 const isEditMode = computed(() => itemEditorMode.value === 'edit')
@@ -378,7 +403,7 @@ return redis.call('LREM', key, 1, marker)
  * @returns {Promise<unknown>} Redis 原始返回结果
  */
 const runRedisCommand = async (command, args) => {
-    const response = await window.api.redis.executeCommand(props.tabId, command, args)
+    const response = await window.api.redis.executeCommand(props.tabId, command, args, {source: 'key-detail'})
 
     if (!response.success) {
         throw new Error(response.error || t('keyDetailPanels.common.messages.commandFail', {value: command}))
@@ -419,6 +444,15 @@ const handleEditItem = (row) => {
 const handleSaveItem = async () => {
     if (!canSubmitItem.value) {
         return
+    }
+
+    // List 按下标分页，写入前必须停止旧循环，避免插入或修改后继续使用过期下标。
+    if (isLoadingMore.value) {
+        invalidateLoadMoreRequest()
+    }
+
+    if (isLoadingAll.value) {
+        invalidateLoadAllRequest()
     }
 
     savingItem.value = true
@@ -514,6 +548,14 @@ const handleDeleteItem = async (row) => {
             }
         )
 
+        if (isLoadingMore.value) {
+            invalidateLoadMoreRequest()
+        }
+
+        if (isLoadingAll.value) {
+            invalidateLoadAllRequest()
+        }
+
         deletingIndex.value = row.index
         const marker = `__other_redis_client_delete_${Date.now()}_${Math.random().toString(16).slice(2)}__`
         const deleteResult = await runRedisCommand('EVAL', [
@@ -545,11 +587,12 @@ const handleDeleteItem = async (row) => {
  * 拉取指定范围内的 List 元素。
  * @param {number} start LRANGE 起始下标
  * @param {number} stop LRANGE 结束下标
+ * @param {string} key 发起请求时固定的 Key，避免详情切换后误读新 Key
  * @returns {Promise<{items:Array, size:number}>} 后端返回的 List 元素和最新总长度
  */
-const fetchListRange = async (start, stop) => {
+const fetchListRange = async (start, stop, key = props.keyData.key) => {
     // 通过 preload 暴露的 IPC 调用主进程，让 Redis 命令仍然留在 main 边界内执行。
-    const response = await window.api.redis.getListRange(props.tabId, props.keyData.key, start, stop)
+    const response = await window.api.redis.getListRange(props.tabId, key, start, stop)
 
     if (!response.success) {
         throw new Error(response.error || t('keyDetailPanels.list.messages.loadFail'))
@@ -572,46 +615,96 @@ const handleLoadMore = async () => {
         return
     }
 
-    isLoadingMore.value = true
+    const requestId = beginLoadMoreRequest()
+    const requestKeyData = props.keyData
+    const requestKey = props.keyData.key
 
     try {
         const start = loadedItems.value.length
-        const stop = Math.min(start + LIST_PAGE_SIZE - 1, listTotalSize.value - 1)
-        const {items, size} = await fetchListRange(start, stop)
+        const stop = getKeyDetailRangeStop(start, listTotalSize.value, KEY_DETAIL_PAGE_SIZE)
+        const {items, size} = await fetchListRange(start, stop, requestKey)
+
+        if (!isLoadMoreRequestCurrent(requestId) || requestKeyData !== props.keyData || requestKey !== props.keyData.key) {
+            return
+        }
 
         // 每次分页返回都会带最新 LLEN，用它校正底部按钮是否还需要可点击。
         listTotalSize.value = size
-        loadedItems.value = [...loadedItems.value, ...items]
+        loadedItems.value = [
+            ...loadedItems.value,
+            ...takeKeyDetailItemsWithinLimit(loadedItems.value.length, items)
+        ]
     } catch (error) {
-        ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadMoreFail'))
+        if (isLoadMoreRequestCurrent(requestId) && requestKeyData === props.keyData && requestKey === props.keyData.key) {
+            ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadMoreFail'))
+        }
     } finally {
-        isLoadingMore.value = false
+        finishLoadMoreRequest(requestId)
     }
 }
 
 /**
- * 一次性加载剩余全部 List 元素。
- * 仅拉取当前未加载的范围，避免重复覆盖已经展示的首段数据。
+ * 分批加载剩余 List 元素，直到读完或达到详情展示上限。
+ * 每批返回后立即追加到虚拟列表，让用户可以看到加载进度并保留中途成功的数据。
  */
 const handleLoadAll = async () => {
-    if (!hasMore.value || isLoadingMore.value || isLoadingAll.value) {
+    if (isLoadingAll.value) {
+        invalidateLoadAllRequest()
         return
     }
 
-    isLoadingAll.value = true
+    if (!hasMore.value || isLoadingMore.value) {
+        return
+    }
+
+    const requestId = beginLoadAllRequest()
+    const requestKeyData = props.keyData
+    const requestKey = props.keyData.key
 
     try {
-        const start = loadedItems.value.length
-        const stop = Math.max(start, listTotalSize.value - 1)
-        const {items, size} = await fetchListRange(start, stop)
+        let latestSize = listTotalSize.value
 
-        // 加载剩余全部时同样校正总长度，兼容后台 List 在查看期间发生变化。
-        listTotalSize.value = size
-        loadedItems.value = [...loadedItems.value, ...items]
+        while (
+            loadedItems.value.length < latestSize &&
+            !hasReachedKeyDetailLimit(loadedItems.value.length, latestSize)
+        ) {
+            const start = loadedItems.value.length
+            const stop = getKeyDetailRangeStop(start, latestSize, KEY_DETAIL_LOAD_ALL_BATCH_SIZE)
+
+            if (stop < start) {
+                break
+            }
+
+            const {items, size} = await fetchListRange(start, stop, requestKey)
+
+            if (
+                !isLoadAllRequestCurrent(requestId) ||
+                requestKeyData !== props.keyData ||
+                requestKey !== props.keyData.key
+            ) {
+                return
+            }
+
+            const appendItems = takeKeyDetailItemsWithinLimit(loadedItems.value.length, items)
+
+            latestSize = size
+            listTotalSize.value = latestSize
+            loadedItems.value = [...loadedItems.value, ...appendItems]
+
+            if (appendItems.length === 0) {
+                break
+            }
+        }
     } catch (error) {
-        ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadAllFail'))
+        if (
+            isLoadAllRequestCurrent(requestId) &&
+            requestKeyData === props.keyData &&
+            requestKey === props.keyData.key
+        ) {
+            ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadAllFail'))
+        }
     } finally {
-        isLoadingAll.value = false
+        finishLoadAllRequest(requestId)
     }
 }
 
@@ -619,12 +712,12 @@ const handleLoadAll = async () => {
 watch(
     () => props.keyData,
     (nextKeyData) => {
+        invalidateLoadMoreRequest()
+        invalidateLoadAllRequest()
         loadedItems.value = Array.isArray(nextKeyData?.value)
             ? nextKeyData.value.map(normalizeListItem)
             : []
         listTotalSize.value = Number(nextKeyData?.size) || loadedItems.value.length
-        isLoadingMore.value = false
-        isLoadingAll.value = false
     },
     {immediate: true}
 )
@@ -638,7 +731,6 @@ watch(
     height: 100%;
     min-height: 0;
     flex-direction: column;
-    background: var(--el-bg-color);
 }
 
 /* 工具栏：左右分布，和 Set 面板保持一致的新增/搜索入口位置。 */

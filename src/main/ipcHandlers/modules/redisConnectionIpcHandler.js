@@ -28,7 +28,17 @@ const REDIS_IPC_HANDLERS = [
     {
         channel: 'redis:execute-command',
         description: '执行 Redis 命令',
-        handler: (connectionId, command, args = []) => redisConnectionManager.executeCommand(connectionId, command, args)
+        handler: (connectionId, command, args = [], options = {}) => redisConnectionManager.executeCommand(connectionId, command, args, options)
+    },
+    {
+        channel: 'redis:get-command-history',
+        description: '分页查询 Redis 命令执行记录',
+        handler: (options = {}) => redisConnectionManager.getCommandHistory(options)
+    },
+    {
+        channel: 'redis:clear-command-history',
+        description: '清空 Redis 命令执行记录',
+        handler: () => redisConnectionManager.clearCommandHistory()
     },
     {
         channel: 'redis:scan-keys',
@@ -47,7 +57,7 @@ const REDIS_IPC_HANDLERS = [
     },
     {
         channel: 'redis:scan-keys-by-pattern',
-        description: '按 pattern 预览 Key 列表',
+        description: '按 pattern 分批扫描 Key 列表',
         handler: (connectionId, pattern, options) => redisConnectionManager.scanKeysByPattern(connectionId, pattern, options)
     },
     {
@@ -67,7 +77,7 @@ const REDIS_IPC_HANDLERS = [
     },
     {
         channel: 'redis:analyze-key-memory',
-        description: '分析当前 DB Key 内存占用',
+        description: '分批分析当前 DB Key 内存占用',
         handler: (connectionId, options) => redisConnectionManager.analyzeKeyMemory(connectionId, options)
     },
     {
@@ -86,9 +96,14 @@ const REDIS_IPC_HANDLERS = [
         handler: (connectionId, key) => redisConnectionManager.getKeyData(connectionId, key)
     },
     {
+        channel: 'redis:get-full-string-value',
+        description: '主动读取完整 String Value',
+        handler: (connectionId, key, options) => redisConnectionManager.getFullStringValue(connectionId, key, options)
+    },
+    {
         channel: 'redis:get-hash-range',
         description: '分段扫描 Hash 字段',
-        handler: (connectionId, key, start, stop) => redisConnectionManager.getHashRange(connectionId, key, start, stop)
+        handler: (connectionId, key, cursor, count) => redisConnectionManager.getHashRange(connectionId, key, cursor, count)
     },
     {
         channel: 'redis:get-list-range',
@@ -121,8 +136,18 @@ const REDIS_IPC_HANDLERS = [
         handler: (connectionId, key, groupName) => redisConnectionManager.getStreamConsumers(connectionId, key, groupName)
     },
     {
+        channel: 'redis:get-server-summary',
+        description: '获取页面 Header 使用的 Redis 运行摘要',
+        handler: (connectionId) => redisConnectionManager.getServerSummary(connectionId)
+    },
+    {
+        channel: 'redis:get-database-summary',
+        description: '获取 DB 选择器使用的数据库摘要',
+        handler: (connectionId) => redisConnectionManager.getDatabaseSummary(connectionId)
+    },
+    {
         channel: 'redis:get-server-info',
-        description: '获取服务器信息（INFO）',
+        description: '获取 Redis 完整服务器信息（INFO ALL）',
         handler: (connectionId) => redisConnectionManager.getServerInfo(connectionId)
     },
     {

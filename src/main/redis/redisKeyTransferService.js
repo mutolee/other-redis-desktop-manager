@@ -25,11 +25,12 @@ const KEY_IMPORT_BATCH_SIZE = 500
  */
 export class RedisKeyTransferService {
     /**
-     * @param {{getActiveConnection: Function, runWithCommandTimeout: Function}} dependencies - 来自连接管理器的依赖。
+     * @param {{getActiveConnection: Function, executeRedisCommand: Function, executeRedisPipeline: Function}} dependencies - 来自连接管理器的依赖。
      */
     constructor(dependencies = {}) {
         this.getActiveConnection = dependencies.getActiveConnection
-        this.runWithCommandTimeout = dependencies.runWithCommandTimeout
+        this.executeRedisCommand = dependencies.executeRedisCommand
+        this.executeRedisPipeline = dependencies.executeRedisPipeline
     }
 
     /**
@@ -44,11 +45,12 @@ export class RedisKeyTransferService {
         let cursor = '0'
 
         while (Object.keys(fields).length < maxItems) {
-            const scanResult = await this.runWithCommandTimeout(
-                connection.config,
-                () => connection.redis.hscan(key, cursor, 'COUNT', KEY_EXPORT_HASH_SCAN_COUNT),
-                'HSCAN'
-            )
+            const scanResult = await this.executeRedisCommand({
+                connection,
+                command: 'HSCAN',
+                args: [key, cursor, 'COUNT', KEY_EXPORT_HASH_SCAN_COUNT],
+                source: 'key-export'
+            }, () => connection.redis.hscan(key, cursor, 'COUNT', KEY_EXPORT_HASH_SCAN_COUNT))
             const nextItems = Array.isArray(scanResult?.[1]) ? scanResult[1] : []
 
             cursor = String(scanResult?.[0] ?? '0')
@@ -76,11 +78,12 @@ export class RedisKeyTransferService {
         let cursor = '0'
 
         while (members.length < maxItems) {
-            const scanResult = await this.runWithCommandTimeout(
-                connection.config,
-                () => connection.redis.sscan(key, cursor, 'COUNT', KEY_EXPORT_SET_SCAN_COUNT),
-                'SSCAN'
-            )
+            const scanResult = await this.executeRedisCommand({
+                connection,
+                command: 'SSCAN',
+                args: [key, cursor, 'COUNT', KEY_EXPORT_SET_SCAN_COUNT],
+                source: 'key-export'
+            }, () => connection.redis.sscan(key, cursor, 'COUNT', KEY_EXPORT_SET_SCAN_COUNT))
             const nextMembers = Array.isArray(scanResult?.[1]) ? scanResult[1] : []
 
             cursor = String(scanResult?.[0] ?? '0')
@@ -106,11 +109,16 @@ export class RedisKeyTransferService {
         metadataPipe.type(key)
         metadataPipe.pttl(key)
         metadataPipe.call('MEMORY', 'USAGE', key)
-        const metadataResults = await this.runWithCommandTimeout(
-            connection.config,
-            () => metadataPipe.exec(),
-            'Key导出元信息管道'
-        )
+        const metadataResults = await this.executeRedisPipeline({
+            connection,
+            commands: [
+                {command: 'TYPE', args: [key]},
+                {command: 'PTTL', args: [key]},
+                {command: 'MEMORY', args: ['USAGE', key]}
+            ],
+            source: 'key-export',
+            label: 'Key export metadata pipeline'
+        }, () => metadataPipe.exec())
 
         const keyType = String(metadataResults?.[0]?.[1] || 'none')
         const ttlMs = Number(metadataResults?.[1]?.[1] ?? -2)
@@ -136,14 +144,34 @@ export class RedisKeyTransferService {
         let limit = null
 
         if (keyType === 'string') {
-            size = await this.runWithCommandTimeout(connection.config, () => connection.redis.strlen(key), 'STRLEN')
+            size = await this.executeRedisCommand({
+                connection,
+                command: 'STRLEN',
+                args: [key],
+                source: 'key-export'
+            }, () => connection.redis.strlen(key))
             limit = KEY_EXPORT_STRING_MAX_BYTES
             truncated = size > limit
             value = truncated
-                ? await this.runWithCommandTimeout(connection.config, () => connection.redis.getrange(key, 0, limit - 1), 'GETRANGE')
-                : await this.runWithCommandTimeout(connection.config, () => connection.redis.get(key), 'GET')
+                ? await this.executeRedisCommand({
+                    connection,
+                    command: 'GETRANGE',
+                    args: [key, 0, limit - 1],
+                    source: 'key-export'
+                }, () => connection.redis.getrange(key, 0, limit - 1))
+                : await this.executeRedisCommand({
+                    connection,
+                    command: 'GET',
+                    args: [key],
+                    source: 'key-export'
+                }, () => connection.redis.get(key))
         } else if (keyType === 'hash') {
-            size = await this.runWithCommandTimeout(connection.config, () => connection.redis.hlen(key), 'HLEN')
+            size = await this.executeRedisCommand({
+                connection,
+                command: 'HLEN',
+                args: [key],
+                source: 'key-export'
+            }, () => connection.redis.hlen(key))
             limit = KEY_EXPORT_COLLECTION_MAX_ITEMS
             truncated = size > limit
             value = await this.readLimitedHashFields(connection, key, limit)
@@ -151,7 +179,15 @@ export class RedisKeyTransferService {
             const pipe = connection.redis.pipeline()
             pipe.llen(key)
             pipe.lrange(key, 0, KEY_EXPORT_COLLECTION_MAX_ITEMS - 1)
-            const results = await this.runWithCommandTimeout(connection.config, () => pipe.exec(), 'List导出管道')
+            const results = await this.executeRedisPipeline({
+                connection,
+                commands: [
+                    {command: 'LLEN', args: [key]},
+                    {command: 'LRANGE', args: [key, 0, KEY_EXPORT_COLLECTION_MAX_ITEMS - 1]}
+                ],
+                source: 'key-export',
+                label: 'List export pipeline'
+            }, () => pipe.exec())
             size = Number(results?.[0]?.[1] ?? 0)
             limit = KEY_EXPORT_COLLECTION_MAX_ITEMS
             truncated = size > limit
@@ -159,7 +195,12 @@ export class RedisKeyTransferService {
         } else if (keyType === 'set') {
             const pipe = connection.redis.pipeline()
             pipe.scard(key)
-            const results = await this.runWithCommandTimeout(connection.config, () => pipe.exec(), 'Set导出元信息管道')
+            const results = await this.executeRedisPipeline({
+                connection,
+                commands: [{command: 'SCARD', args: [key]}],
+                source: 'key-export',
+                label: 'Set export metadata pipeline'
+            }, () => pipe.exec())
             size = Number(results?.[0]?.[1] ?? 0)
             limit = KEY_EXPORT_COLLECTION_MAX_ITEMS
             truncated = size > limit
@@ -168,7 +209,15 @@ export class RedisKeyTransferService {
             const pipe = connection.redis.pipeline()
             pipe.zcard(key)
             pipe.zrange(key, 0, KEY_EXPORT_COLLECTION_MAX_ITEMS - 1, 'WITHSCORES')
-            const results = await this.runWithCommandTimeout(connection.config, () => pipe.exec(), 'ZSet导出管道')
+            const results = await this.executeRedisPipeline({
+                connection,
+                commands: [
+                    {command: 'ZCARD', args: [key]},
+                    {command: 'ZRANGE', args: [key, 0, KEY_EXPORT_COLLECTION_MAX_ITEMS - 1, 'WITHSCORES']}
+                ],
+                source: 'key-export',
+                label: 'ZSet export pipeline'
+            }, () => pipe.exec())
             const rawItems = Array.isArray(results?.[1]?.[1]) ? results[1][1] : []
 
             size = Number(results?.[0]?.[1] ?? 0)
@@ -185,7 +234,15 @@ export class RedisKeyTransferService {
             const pipe = connection.redis.pipeline()
             pipe.xlen(key)
             pipe.xrange(key, '-', '+', 'COUNT', KEY_EXPORT_COLLECTION_MAX_ITEMS)
-            const results = await this.runWithCommandTimeout(connection.config, () => pipe.exec(), 'Stream导出管道')
+            const results = await this.executeRedisPipeline({
+                connection,
+                commands: [
+                    {command: 'XLEN', args: [key]},
+                    {command: 'XRANGE', args: [key, '-', '+', 'COUNT', KEY_EXPORT_COLLECTION_MAX_ITEMS]}
+                ],
+                source: 'key-export',
+                label: 'Stream export pipeline'
+            }, () => pipe.exec())
 
             size = Number(results?.[0]?.[1] ?? 0)
             limit = KEY_EXPORT_COLLECTION_MAX_ITEMS
@@ -289,7 +346,12 @@ export class RedisKeyTransferService {
         const normalizedTtlMs = Number(ttlMs)
 
         if (Number.isFinite(normalizedTtlMs) && normalizedTtlMs > 0) {
-            await this.runWithCommandTimeout(connection.config, () => connection.redis.pexpire(key, normalizedTtlMs), 'PEXPIRE')
+            await this.executeRedisCommand({
+                connection,
+                command: 'PEXPIRE',
+                args: [key, normalizedTtlMs],
+                source: 'key-import'
+            }, () => connection.redis.pexpire(key, normalizedTtlMs))
         }
     }
 
@@ -309,37 +371,68 @@ export class RedisKeyTransferService {
         }
 
         if (!options.replace) {
-            const exists = await this.runWithCommandTimeout(connection.config, () => connection.redis.exists(key), 'EXISTS')
+            const exists = await this.executeRedisCommand({
+                connection,
+                command: 'EXISTS',
+                args: [key],
+                source: 'key-import'
+            }, () => connection.redis.exists(key))
             if (Number(exists) > 0) {
                 return {status: 'skipped', key, reason: 'exists'}
             }
         }
 
         if (options.replace) {
-            await this.runWithCommandTimeout(connection.config, () => connection.redis.del(key), 'DEL')
+            await this.executeRedisCommand({
+                connection,
+                command: 'DEL',
+                args: [key],
+                source: 'key-import'
+            }, () => connection.redis.del(key))
         }
 
         if (keyType === 'string') {
-            await this.runWithCommandTimeout(connection.config, () => connection.redis.set(key, keyData.value ?? ''), 'SET')
+            await this.executeRedisCommand({
+                connection,
+                command: 'SET',
+                args: [key, keyData.value ?? ''],
+                source: 'key-import'
+            }, () => connection.redis.set(key, keyData.value ?? ''))
         } else if (keyType === 'hash') {
             const entries = Object.entries(keyData.value || {})
             for (const batch of this.createImportBatches(entries)) {
                 if (batch.length > 0) {
-                    await this.runWithCommandTimeout(connection.config, () => connection.redis.hset(key, ...batch.flat()), 'HSET')
+                    const args = [key, ...batch.flat()]
+                    await this.executeRedisCommand({
+                        connection,
+                        command: 'HSET',
+                        args,
+                        source: 'key-import'
+                    }, () => connection.redis.hset(...args))
                 }
             }
         } else if (keyType === 'list') {
             const items = Array.isArray(keyData.value) ? keyData.value : []
             for (const batch of this.createImportBatches(items)) {
                 if (batch.length > 0) {
-                    await this.runWithCommandTimeout(connection.config, () => connection.redis.rpush(key, ...batch), 'RPUSH')
+                    await this.executeRedisCommand({
+                        connection,
+                        command: 'RPUSH',
+                        args: [key, ...batch],
+                        source: 'key-import'
+                    }, () => connection.redis.rpush(key, ...batch))
                 }
             }
         } else if (keyType === 'set') {
             const members = Array.isArray(keyData.value) ? keyData.value : []
             for (const batch of this.createImportBatches(members)) {
                 if (batch.length > 0) {
-                    await this.runWithCommandTimeout(connection.config, () => connection.redis.sadd(key, ...batch), 'SADD')
+                    await this.executeRedisCommand({
+                        connection,
+                        command: 'SADD',
+                        args: [key, ...batch],
+                        source: 'key-import'
+                    }, () => connection.redis.sadd(key, ...batch))
                 }
             }
         } else if (keyType === 'zset') {
@@ -347,7 +440,12 @@ export class RedisKeyTransferService {
             for (const batch of this.createImportBatches(members)) {
                 const args = batch.flatMap((item) => [Number(item.score) || 0, item.member ?? ''])
                 if (args.length > 0) {
-                    await this.runWithCommandTimeout(connection.config, () => connection.redis.zadd(key, ...args), 'ZADD')
+                    await this.executeRedisCommand({
+                        connection,
+                        command: 'ZADD',
+                        args: [key, ...args],
+                        source: 'key-import'
+                    }, () => connection.redis.zadd(key, ...args))
                 }
             }
         } else if (keyType === 'stream') {
@@ -357,7 +455,12 @@ export class RedisKeyTransferService {
                 const args = fields.flatMap((item) => [item.field ?? '', item.value ?? ''])
 
                 if (entry.id && args.length > 0) {
-                    await this.runWithCommandTimeout(connection.config, () => connection.redis.xadd(key, entry.id, ...args), 'XADD')
+                    await this.executeRedisCommand({
+                        connection,
+                        command: 'XADD',
+                        args: [key, entry.id, ...args],
+                        source: 'key-import'
+                    }, () => connection.redis.xadd(key, entry.id, ...args))
                 }
             }
         } else {

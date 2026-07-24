@@ -379,7 +379,7 @@ const buildCreateCommand = () => {
  * @returns {Promise<unknown>} Redis 原始返回结果
  */
 const runRedisCommand = async (command, args) => {
-    const response = await window.api.redis.executeCommand(props.tabId, command, args)
+    const response = await window.api.redis.executeCommand(props.tabId, command, args, {source: 'key-detail'})
 
     if (!response.success) {
         throw new Error(response.error || t('dialogs.addKey.messages.commandFail', {value: command}))

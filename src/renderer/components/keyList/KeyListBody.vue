@@ -66,7 +66,12 @@
                                 class="key-type-tag"
                                 :class="{'is-type-loading': data[index].typeLoading}"
                             >
-                                {{ data[index].typeLoading ? '...' : String(data[index].type || 'unknown').toUpperCase() }}
+                                <span v-if="data[index].typeLoading" class="type-loading-dots" aria-hidden="true">
+                                    <span></span>
+                                    <span></span>
+                                    <span></span>
+                                </span>
+                                <span v-else>{{ String(data[index].type || 'unknown').toUpperCase() }}</span>
                             </el-tag>
 
                             <!-- Key 名称：树形模式显示当前层级名称，列表模式显示完整 Key。 -->
@@ -275,6 +280,44 @@ const getRowClass = (row) => ({
     color: var(--el-text-color-placeholder);
     border-color: var(--el-border-color-lighter);
     background: var(--el-fill-color-light);
+}
+
+/* 类型加载圆点：使用独立图形代替文本省略号，保证不同系统字体下都能垂直居中。 */
+.type-loading-dots {
+    display: inline-flex;
+    height: 12px;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    vertical-align: middle;
+}
+
+.type-loading-dots > span {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: type-loading-pulse 1.2s ease-in-out infinite;
+}
+
+.type-loading-dots > span:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+.type-loading-dots > span:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+@keyframes type-loading-pulse {
+    0%,
+    60%,
+    100% {
+        opacity: 0.35;
+    }
+
+    30% {
+        opacity: 1;
+    }
 }
 
 /* Key 名称区域：在有限宽度下省略超长内容。 */

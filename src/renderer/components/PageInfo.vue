@@ -48,6 +48,7 @@
                                     v-model="activeDetailTabKey"
                                     type="card"
                                     class="detail-tabs"
+                                    @contextmenu.prevent.stop="handleDetailTabsContextMenu"
                                 >
                                     <el-tab-pane
                                         v-for="tab in detailTabs"
@@ -56,7 +57,10 @@
                                     >
                                         <template #label>
                                             <!-- 详情 tab 标题：左侧 Key 名称可省略，右侧关闭按钮常驻显示。 -->
-                                            <span class="detail-tab-label">
+                                            <span
+                                                class="detail-tab-label"
+                                                :class="{'is-context-menu-active': isDetailTabContextMenuTarget(tab.key)}"
+                                            >
                                                  <span class="detail-tab-title">{{ tab.label }}</span>
                                                  <button
                                                      class="detail-tab-close-btn"
@@ -71,10 +75,21 @@
                                 </el-tabs>
                             </div>
                         </template>
+
+                        <!-- Key 详情 Tab 右键菜单：复用连接 Tab 的批量关闭菜单和交互风格。 -->
+                        <PageNavbarCloseMenu
+                            v-model:visible="detailTabContextMenuVisible"
+                            :virtual-ref="detailTabContextMenuVirtualRef"
+                            :can-close-other="canCloseOtherDetailTabs"
+                            :can-close-left="canCloseLeftDetailTabs"
+                            :can-close-right="canCloseRightDetailTabs"
+                            @command="handleDetailTabCloseCommand"
+                        />
+
                         <el-card shadow="never" class="content-right">
-                            <!-- 已打开详情内容：所有 tab 常驻挂载，切换时只隐藏/显示，避免重新加载 Redis 数据。 -->
+                            <!-- 已缓存详情内容：仅保留最近访问的 15 个面板，关闭或淘汰后立即卸载组件。 -->
                             <div
-                                v-for="tab in detailTabs"
+                                v-for="tab in cachedDetailTabs"
                                 :key="tab.panelId || tab.key"
                                 v-show="activeDetailTabKey === tab.key"
                                 class="detail-tab-content"
@@ -103,7 +118,7 @@
  * Key 浏览页面骨架组件。
  * 负责根据连接状态切换页面主体，并承载左侧 Key 列表、右侧 Key 详情与中间拖拽分割线。
  */
-import {computed, onMounted, onUnmounted, ref, watch} from 'vue'
+import {computed, nextTick, onActivated, onDeactivated, onUnmounted, ref, shallowRef, watch} from 'vue'
 import {CloseSmall} from '@icon-park/vue-next'
 import {storeToRefs} from 'pinia'
 import {useI18n} from '../i18n/index.js'
@@ -114,6 +129,10 @@ import PageFailed from './PageFailed.vue'
 import KeyListPanel from './KeyListPanel.vue'
 import KeyDetailPanel from './KeyDetailPanel.vue'
 import ResizableSplitPane from './drag/ResizableSplitPane.vue'
+import PageNavbarCloseMenu from './dialog/PageNavbarCloseMenu.vue'
+
+// Key 详情组件缓存上限：页签元数据可以继续保留，但同时挂载的详情实例最多为 15 个。
+const KEY_DETAIL_CACHE_LIMIT = 15
 
 // 国际化文案读取函数：驱动连接加载遮罩和右侧详情空状态文案。
 const {t} = useI18n()
@@ -169,6 +188,9 @@ const leftWidth = ref(24)
 // 右侧已打开的 Key 详情 tab 列表，左侧点击 Key 时追加或激活。
 const detailTabs = ref([])
 
+// 已挂载详情面板的实例 ID，按最近访问顺序排列，末尾为最近使用项。
+const cachedDetailPanelIds = ref([])
+
 // 左侧 Key 列表局部重命名补丁：详情侧重命名成功后，通知 KeyListPanel 原地替换已加载列表项。
 const renamedKeyPatch = ref(null)
 
@@ -186,6 +208,92 @@ const activeDetailTab = computed(() =>
     detailTabs.value.find((tab) => tab.key === activeDetailTabKey.value) ?? null
 )
 
+// 缓存中的详情 tab：只有这些项目会创建 KeyDetailPanel 组件实例。
+const cachedDetailTabs = computed(() => {
+    const cachedPanelIdSet = new Set(cachedDetailPanelIds.value)
+    return detailTabs.value.filter((tab) => cachedPanelIdSet.has(tab.panelId))
+})
+
+// Key 详情 Tab 右键菜单状态：记录菜单目标和鼠标坐标定位对象，不改变当前激活 Key。
+const detailTabContextMenuVisible = ref(false)
+const detailTabContextMenuKey = ref('')
+const detailTabContextMenuVirtualRef = shallowRef(null)
+
+// 右键目标索引：批量关闭命令均以被右击的 Key Tab 为边界。
+const detailTabContextMenuIndex = computed(() => detailTabs.value.findIndex(
+    (tab) => tab.key === detailTabContextMenuKey.value
+))
+const canCloseOtherDetailTabs = computed(() => (
+    detailTabContextMenuIndex.value >= 0 && detailTabs.value.length > 1
+))
+const canCloseLeftDetailTabs = computed(() => detailTabContextMenuIndex.value > 0)
+const canCloseRightDetailTabs = computed(() => (
+    detailTabContextMenuIndex.value >= 0
+    && detailTabContextMenuIndex.value < detailTabs.value.length - 1
+))
+
+// 菜单关闭后清理目标和定位引用，使右键 Tab 自动恢复普通样式。
+watch(detailTabContextMenuVisible, (visible) => {
+    if (!visible) {
+        detailTabContextMenuKey.value = ''
+        detailTabContextMenuVirtualRef.value = null
+    }
+})
+
+/**
+ * 将指定详情面板加入最近使用缓存，并淘汰最久未访问的面板实例。
+ * 被淘汰的 tab 元数据仍然保留，用户再次点击页签时会重新创建详情组件。
+ *
+ * @param {Object|null} tab - 需要缓存的 Key 详情 tab。
+ */
+const cacheDetailPanel = (tab) => {
+    if (!tab?.panelId) {
+        return
+    }
+
+    const nextPanelIds = cachedDetailPanelIds.value.filter((panelId) => panelId !== tab.panelId)
+    nextPanelIds.push(tab.panelId)
+    cachedDetailPanelIds.value = nextPanelIds.slice(-KEY_DETAIL_CACHE_LIMIT)
+}
+
+/**
+ * 从详情缓存中移除指定面板，确保对应 KeyDetailPanel 立即卸载。
+ *
+ * @param {string} panelId - 详情面板实例 ID。
+ */
+const removeCachedDetailPanel = (panelId) => {
+    cachedDetailPanelIds.value = cachedDetailPanelIds.value.filter((cachedPanelId) => (
+        cachedPanelId !== panelId
+    ))
+}
+
+/**
+ * 按当前保留的 tab 清理详情缓存，用于批量关闭场景。
+ *
+ * @param {Array<Object>} tabs - 仍然保留的 Key 详情 tabs。
+ */
+const pruneDetailPanelCache = (tabs) => {
+    const remainingPanelIdSet = new Set(tabs.map((tab) => tab.panelId))
+    cachedDetailPanelIds.value = cachedDetailPanelIds.value.filter((panelId) => (
+        remainingPanelIdSet.has(panelId)
+    ))
+}
+
+/**
+ * 激活指定详情 tab，并确保对应组件处于最近使用缓存中。
+ *
+ * @param {Object|null} tab - 需要激活的 Key 详情 tab。
+ */
+const activateDetailTab = (tab) => {
+    if (!tab) {
+        activeDetailTabKey.value = ''
+        return
+    }
+
+    cacheDetailPanel(tab)
+    activeDetailTabKey.value = tab.key
+}
+
 /**
  * 同步左侧列表点击后的 Key 选择结果。
  * 如果右侧已经打开该 Key，则直接激活；否则创建新的详情 tab。
@@ -197,18 +305,19 @@ const onSelectKey = (key) => {
     }
 
     // 已打开的 Key 只需要激活，不重复创建 tab。
-    const exists = detailTabs.value.some((tab) => tab.key === key.key)
+    let targetTab = detailTabs.value.find((tab) => tab.key === key.key)
 
-    if (!exists) {
-        detailTabs.value.push({
+    if (!targetTab) {
+        targetTab = {
             ...key,
             // 详情面板实例 ID：Key 重命名会改变 tab.key，但组件实例需要保持稳定，避免重建后重新加载。
             panelId: `${key.key}-${Date.now()}`,
             label: key.displayKey || key.key
-        })
+        }
+        detailTabs.value.push(targetTab)
     }
 
-    activeDetailTabKey.value = key.key
+    activateDetailTab(targetTab)
 }
 
 /**
@@ -223,8 +332,10 @@ const closeDetailTab = (tabKey) => {
     }
 
     const isActiveTab = activeDetailTabKey.value === tabKey
+    const removedTab = detailTabs.value[removeIndex]
 
-    // 先删除目标 tab，再根据相邻位置计算新的激活 tab。
+    // 先移除缓存实例并删除目标 tab，再根据相邻位置计算新的激活 tab。
+    removeCachedDetailPanel(removedTab.panelId)
     detailTabs.value.splice(removeIndex, 1)
 
     if (!isActiveTab) {
@@ -232,15 +343,116 @@ const closeDetailTab = (tabKey) => {
     }
 
     const nextActiveTab = detailTabs.value[removeIndex] || detailTabs.value[removeIndex - 1] || null
-    activeDetailTabKey.value = nextActiveTab?.key || ''
+    activateDetailTab(nextActiveTab)
 }
 
 /**
  * 关闭当前连接页右侧已经打开的全部 Key 详情 tab。
  */
 const closeAllDetailTabs = () => {
+    detailTabContextMenuVisible.value = false
+    cachedDetailPanelIds.value = []
     detailTabs.value = []
     activeDetailTabKey.value = ''
+}
+
+/**
+ * 判断 Key 详情 Tab 是否为当前右键菜单目标。
+ *
+ * @param {string} tabKey - Key Tab 名称。
+ * @returns {boolean} 是否保留右键时的悬浮样式。
+ */
+const isDetailTabContextMenuTarget = (tabKey) => (
+    detailTabContextMenuVisible.value && detailTabContextMenuKey.value === tabKey
+)
+
+/**
+ * 根据鼠标位置创建 Element Plus Popover 的虚拟触发对象。
+ *
+ * @param {MouseEvent} event - Key Tab 右键事件。
+ * @returns {{getBoundingClientRect: Function}} 虚拟触发定位对象。
+ */
+const createDetailTabContextMenuVirtualRef = (event) => {
+    const {clientX, clientY} = event
+
+    return {
+        getBoundingClientRect: () => ({
+            width: 0,
+            height: 0,
+            top: clientY,
+            right: clientX,
+            bottom: clientY,
+            left: clientX,
+            x: clientX,
+            y: clientY
+        })
+    }
+}
+
+/**
+ * 打开 Key 详情 Tab 的右键关闭菜单，不切换当前激活 Tab。
+ * 通过实际 Tab DOM 顺序定位数据，使标题、关闭按钮和标签留白区域都能触发。
+ *
+ * @param {MouseEvent} event - Key Tab 右键事件。
+ */
+const handleDetailTabsContextMenu = async (event) => {
+    const tabElement = event.target.closest('.el-tabs__item')
+    if (!tabElement) {
+        return
+    }
+
+    const tabElements = Array.from(tabElement.parentElement?.querySelectorAll('.el-tabs__item') || [])
+    const targetTab = detailTabs.value[tabElements.indexOf(tabElement)]
+    if (!targetTab) {
+        return
+    }
+
+    detailTabContextMenuVisible.value = false
+    await nextTick()
+
+    detailTabContextMenuKey.value = targetTab.key
+    detailTabContextMenuVirtualRef.value = createDetailTabContextMenuVirtualRef(event)
+    detailTabContextMenuVisible.value = true
+}
+
+/**
+ * 执行以右键目标为边界的 Key 详情 Tab 批量关闭命令。
+ * 当前激活 Tab 被关闭时，优先激活仍然保留的右键目标。
+ *
+ * @param {'closeOther'|'closeLeft'|'closeRight'|'closeAll'} command - 关闭命令。
+ */
+const handleDetailTabCloseCommand = (command) => {
+    const targetIndex = detailTabContextMenuIndex.value
+    const targetKey = detailTabContextMenuKey.value
+    if (targetIndex < 0) {
+        return
+    }
+
+    let remainingTabs = detailTabs.value
+    switch (command) {
+        case 'closeOther':
+            remainingTabs = [detailTabs.value[targetIndex]]
+            break
+        case 'closeLeft':
+            remainingTabs = detailTabs.value.slice(targetIndex)
+            break
+        case 'closeRight':
+            remainingTabs = detailTabs.value.slice(0, targetIndex + 1)
+            break
+        case 'closeAll':
+            remainingTabs = []
+            break
+        default:
+            return
+    }
+
+    detailTabs.value = remainingTabs
+    pruneDetailPanelCache(remainingTabs)
+
+    if (!remainingTabs.some((tab) => tab.key === activeDetailTabKey.value)) {
+        const nextActiveTab = remainingTabs.find((tab) => tab.key === targetKey) || remainingTabs[0] || null
+        activateDetailTab(nextActiveTab)
+    }
 }
 
 /**
@@ -305,30 +517,57 @@ const handleResetPageInfo = (payload = {}) => {
         return
     }
 
-    detailTabs.value = []
-    activeDetailTabKey.value = ''
+    closeAllDetailTabs()
     renamedKeyPatch.value = null
     deletedKeyPatch.value = null
     keyListResetVersion.value += 1
 }
 
-onMounted(() => {
-    // 监听顶部刷新事件，只重置当前活动连接页，避免 KeepAlive 下其他页签被误清空。
-    eventBus.on('reset-page-info', handleResetPageInfo)
-    // 监听左侧右键删除 Key 事件，关闭右侧已经打开的同名详情 tab。
-    eventBus.on('key-list-key-deleted', handleKeyListKeyDeleted)
-})
+let arePageEventsRegistered = false
 
-onUnmounted(() => {
-    // 释放事件总线监听，避免组件重建后重复响应顶部刷新。
+/**
+ * 注册当前活动连接页需要的跨组件事件。
+ * KeepAlive 中只有活动页订阅，避免缓存页长期重复响应全局事件。
+ */
+const registerPageEvents = () => {
+    if (arePageEventsRegistered) {
+        return
+    }
+
+    eventBus.on('reset-page-info', handleResetPageInfo)
+    eventBus.on('key-list-key-deleted', handleKeyListKeyDeleted)
+    arePageEventsRegistered = true
+}
+
+/**
+ * 释放当前连接页注册的跨组件事件。
+ */
+const unregisterPageEvents = () => {
+    if (!arePageEventsRegistered) {
+        return
+    }
+
     eventBus.off('reset-page-info', handleResetPageInfo)
     eventBus.off('key-list-key-deleted', handleKeyListKeyDeleted)
+    arePageEventsRegistered = false
+}
+
+onActivated(registerPageEvents)
+onDeactivated(unregisterPageEvents)
+onUnmounted(unregisterPageEvents)
+
+// Element Plus tabs 直接切换 v-model 时，将新激活面板提升为最近使用项；已淘汰面板会在这里重新创建。
+watch(activeDetailTabKey, (tabKey) => {
+    if (!tabKey) {
+        return
+    }
+
+    cacheDetailPanel(detailTabs.value.find((tab) => tab.key === tabKey) ?? null)
 })
 
 watch(currentDbIndex, () => {
     // 切换 DB 后清空详情 tab，避免显示上一个库里的 Key 详情。
-    detailTabs.value = []
-    activeDetailTabKey.value = ''
+    closeAllDetailTabs()
 })
 </script>
 
@@ -453,6 +692,11 @@ html.dark .detail-tabs {
 /* 右侧激活 tab：覆盖 Element Plus card tabs 默认底边框颜色，改为当前主题色。 */
 .detail-tabs:deep(.el-tabs__item.is-active) {
     border-bottom-color: var(--el-color-primary) !important;
+}
+
+/* 被右击的 Key Tab 在菜单显示期间保留悬浮样式，菜单关闭后自动恢复。 */
+.detail-tabs:deep(.el-tabs__item:has(.detail-tab-label.is-context-menu-active):not(.is-active)) {
+    color: var(--el-color-primary);
 }
 
 /* 详情 tab 标题：Key 名称和关闭按钮同排，长 Key 名称省略，关闭按钮常驻右侧。 */

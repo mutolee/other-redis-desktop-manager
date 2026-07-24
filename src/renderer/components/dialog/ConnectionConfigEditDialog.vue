@@ -345,8 +345,8 @@ const props = defineProps({
 // 对外事件：同步弹窗显示状态，并在关闭后通知父组件清理编辑对象。
 const emit = defineEmits(['update:visible', 'closed'])
 
-// 连接配置 store：编辑保存后同步已打开连接页签里的配置快照。
-const {openedConnectionConfigs} = storeToRefs(useConnectionConfigsStore())
+// 连接配置 store：提交时再次确认连接未被打开，避免弹窗打开后的状态竞态。
+const connectionConfigsStore = useConnectionConfigsStore()
 
 // 弹窗可见性代理：透传 v-model:visible 给父组件。
 const dialogVisible = computed({
@@ -517,19 +517,25 @@ const handleSubmit = async () => {
             return
         }
 
+        if (connectionConfigsStore.findOpenedConnection(props.connectionConfig.id)) {
+            ElMessage.warning(t('connectionDialog.messages.closeBeforeEdit'))
+            return
+        }
+
         // 清理表单数据，确保只包含可序列化的内容
         const cleanFormData = JSON.parse(JSON.stringify(formData))
 
-        // 调用更新连接配置接口
-        await connectConfigRepository.update(props.connectionConfig.id, cleanFormData)
-        ElMessage.success(t('connectionDialog.messages.updateSuccess'))
-
-        // 更新已经打开的连接配置
-        const connection = openedConnectionConfigs.value.find(connect => connect.id === props.connectionConfig.id);
-        if (connection) {
-            // 更新连接配置数据
-            Object.assign(connection, cleanFormData)
+        // 已打开连接禁止编辑，因此这里只更新持久化配置，不需要同步页签或触发重连。
+        const updatedConnection = await connectConfigRepository.update(
+            props.connectionConfig.id,
+            cleanFormData
+        )
+        if (!updatedConnection) {
+            ElMessage.error(t('connectionDialog.messages.missingId'))
+            return
         }
+
+        ElMessage.success(t('connectionDialog.messages.updateSuccess'))
 
         // 如果是搜索模式，刷新搜索结果，否则重新加载连接配置列表
         if (searchModeState.value) {

@@ -102,8 +102,8 @@ class ConnectConfigRepository {
     async getAll() {
         const table = await this.getTable()
 
-        // Dexie orderBy 只支持单字段，这里先按分组索引读取，再在内存中补充名称排序。
-        const rows = await table.orderBy('group_name').toArray()
+        // 分组和名称需要组合排序，统一读取后只执行一次内存排序。
+        const rows = await table.toArray()
 
         rows.sort((a, b) => {
             if (a.group_name !== b.group_name) {
@@ -137,7 +137,7 @@ class ConnectConfigRepository {
      */
     async findAllGroups(keyword) {
         const table = await this.getTable()
-        const rows = await table.orderBy('group_name').toArray()
+        const rows = await table.toArray()
         const searchKeyword = keyword?.trim().toLowerCase()
         const groups = new Set()
 
@@ -194,6 +194,43 @@ class ConnectConfigRepository {
         }
 
         await table.update(id, dataToUpdate)
+
+        return await this.findById(id)
+    }
+
+    /**
+     * 只更新单个连接的分组名称。
+     * 移动连接不需要重新构造和校验整份配置，但仍需保证目标分组内连接名称唯一。
+     *
+     * @param {number} id - 配置 ID。
+     * @param {string} groupName - 目标分组名称。
+     * @returns {Promise<ConnectionConfigModel|null>} 更新后的连接配置。
+     */
+    async updateGroup(id, groupName) {
+        const {t} = useI18n()
+        const normalizedGroupName = normalizeConnectionGroupName(groupName)
+
+        if (isBlank(normalizedGroupName)) {
+            throw new Error(t('database.connectionConfig.validation.groupNameRequired'))
+        }
+
+        const table = await this.getTable()
+        const existing = await table.get(id)
+        if (!existing) {
+            return null
+        }
+
+        if (await this.existsByName(existing.name, normalizedGroupName, id)) {
+            throw new Error(t('database.connectionConfig.duplicateNameInGroup', {
+                group: normalizedGroupName,
+                name: existing.name
+            }))
+        }
+
+        await table.update(id, {
+            group_name: normalizedGroupName,
+            updated_at: new Date().toISOString()
+        })
 
         return await this.findById(id)
     }
@@ -267,44 +304,55 @@ class ConnectConfigRepository {
             return 0
         }
 
-        const table = await this.getTable()
-        const rows = await table
-            .where('group_name')
-            .equals(normalizedOldGroupName)
-            .toArray()
-
-        if (rows.length === 0) {
-            return 0
-        }
-
+        const db = await databaseConnection.getDatabase()
+        const table = db[this.tableName]
         const now = new Date().toISOString()
-        const updateTasks = rows.map((row) => {
-            // 重命名分组只改 group_name 和 updated_at，其他连接字段保持不变。
-            return table.update(row.id, {
-                group_name: normalizedNewGroupName,
-                updated_at: now
-            })
+
+        // 唯一性检查和分组重命名放在同一事务，避免并发写入破坏“同组连接名称唯一”的约束。
+        return await db.transaction('rw', table, async () => {
+            const [sourceRows, targetRows] = await Promise.all([
+                table.where('group_name').equals(normalizedOldGroupName).toArray(),
+                table.where('group_name').equals(normalizedNewGroupName).toArray()
+            ])
+
+            if (sourceRows.length === 0) {
+                return 0
+            }
+
+            const targetNames = new Set(targetRows.map(row => row.name))
+            const duplicateRow = sourceRows.find(row => targetNames.has(row.name))
+            if (duplicateRow) {
+                throw new Error(t('database.connectionConfig.duplicateNameInGroup', {
+                    group: normalizedNewGroupName,
+                    name: duplicateRow.name
+                }))
+            }
+
+            return await table
+                .where('group_name')
+                .equals(normalizedOldGroupName)
+                .modify({
+                    group_name: normalizedNewGroupName,
+                    updated_at: now
+                })
         })
-
-        await Promise.all(updateTasks)
-
-        return rows.length
     }
 
     /**
      * 更新最后活跃时间。
      *
      * @param {number} id - 配置 ID
-     * @returns {Promise<boolean>} 是否更新成功
+     * @returns {Promise<string|null>} 更新后的 ISO 时间；记录不存在时返回 null。
      */
     async updateLastActiveTime(id) {
         const table = await this.getTable()
+        const lastActiveAt = new Date().toISOString()
 
-        await table.update(id, {
-            last_active_at: new Date().toISOString()
+        const updatedCount = await table.update(id, {
+            last_active_at: lastActiveAt
         })
 
-        return true
+        return updatedCount > 0 ? lastActiveAt : null
     }
 
     /**
@@ -327,7 +375,11 @@ class ConnectConfigRepository {
 
             return this.hasMatchedName(rows, excludeId)
         } catch (error) {
-            // 如果历史数据库缺少复合索引，降级为全表扫描，保证导入/编辑流程仍可工作。
+            if (error?.name !== 'SchemaError') {
+                throw error
+            }
+
+            // 历史数据库缺少复合索引时降级为全表扫描，其他数据库错误继续抛给调用方。
             const rows = await table.toArray()
             const matches = rows.filter((row) => {
                 return row.name === name && normalizeConnectionGroupName(row.group_name) === normalizedGroupName
@@ -360,7 +412,7 @@ class ConnectConfigRepository {
      */
     async search(keyword) {
         const table = await this.getTable()
-        const searchPattern = keyword.toLowerCase()
+        const searchPattern = String(keyword || '').trim().toLowerCase()
         const rows = await table.toArray()
 
         const matches = rows.filter((row) => {

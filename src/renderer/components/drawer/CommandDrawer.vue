@@ -182,6 +182,8 @@ const dbValue = ref('0')
 const dbSizeMap = ref({})
 const databaseCount = ref(DEFAULT_DATABASE_COUNT)
 const isDrawerContentReady = ref(false)
+// 命令会话请求令牌：关闭抽屉或切换目标连接时，使尚未完成的旧创建流程立即失效。
+let commandSessionRequestToken = null
 // DB 下拉选项：按命令面板独立连接读取到的数据库数量和 Keyspace 数量生成。
 const dbOptions = computed(() => buildDbOptions(databaseCount.value, dbSizeMap.value))
 // 命令提示信息：用于命令示例预览和 Tab 补全。
@@ -241,8 +243,12 @@ const focusInputAfterOpen = () => {
  * 关闭当前命令抽屉专属 Redis 会话。
  * 抽屉关闭或切换目标连接时统一调用，避免命令面板遗留独立连接。
  */
-const cleanupCommandSession = async () => {
+const cleanupCommandSession = async ({invalidateRequest = true} = {}) => {
     const sessionId = commandSessionId.value
+
+    if (invalidateRequest) {
+        commandSessionRequestToken = null
+    }
 
     commandSessionId.value = ''
     commandConnection.value = null
@@ -265,18 +271,18 @@ const cleanupCommandSession = async () => {
  * 同步命令面板 DBSize 信息。
  * 命令抽屉使用独立 Redis 连接，因此 DB 数量和 Keyspace 也从当前命令会话读取。
  */
-const fetchCommandServerInfo = async () => {
+const fetchCommandDatabaseSummary = async () => {
     if (!commandSessionId.value || commandConnection.value?.status !== 'connected') {
         return
     }
 
     try {
-        const result = await window.api.redis.getServerInfo(commandSessionId.value)
+        const result = await window.api.redis.getDatabaseSummary(commandSessionId.value)
 
         if (result.success && result.data) {
             const currentDbIndex = Number(commandConnection.value?.db_index) || 0
             databaseCount.value = normalizeDatabaseCount(result.data.databaseCount, currentDbIndex)
-            dbSizeMap.value = buildDbSizeMap(result.data.summary?.keyspace)
+            dbSizeMap.value = buildDbSizeMap(result.data.keyspace)
         }
     } catch {
         // DBSize 只是头部辅助信息，读取失败不打断命令面板使用。
@@ -292,12 +298,19 @@ const createCommandSession = async () => {
         return
     }
 
-    await cleanupCommandSession()
+    const requestToken = Symbol(`command-session:${props.connection.id}`)
+    commandSessionRequestToken = requestToken
+    await cleanupCommandSession({invalidateRequest: false})
+
+    if (commandSessionRequestToken !== requestToken || !drawerVisible.value || !isDrawerContentReady.value) {
+        return
+    }
+
     resetTerminalState()
 
     // 复制连接配置并注入系统超时参数，确保命令面板使用独立、可序列化的运行时连接配置。
     const runtimeConnectionConfig = mergeConnectionRuntimeSettings(
-        JSON.parse(JSON.stringify(props.connection)),
+        props.connection,
         connectionSettings.value
     )
     const sessionId = buildCommandSessionId(props.connection.id)
@@ -315,7 +328,20 @@ const createCommandSession = async () => {
     lastSessionStatus.value = 'connecting'
     appendSystemLine(t('commandDrawer.messages.connecting', {value: commandConnection.value.name}), 'info')
 
-    await window.api.redis.connect(sessionId, runtimeConnectionConfig)
+    try {
+        await window.api.redis.connect(sessionId, runtimeConnectionConfig)
+    } catch (error) {
+        if (commandSessionRequestToken === requestToken && commandConnection.value?.id === sessionId) {
+            commandConnection.value.status = 'error'
+            appendSystemLine(error.message || String(error), 'error')
+        }
+        return
+    }
+
+    // 打开期间若关闭抽屉或切换目标连接，立即回收刚创建完成的过期会话。
+    if (commandSessionRequestToken !== requestToken || commandSessionId.value !== sessionId) {
+        window.api.redis.disconnect(sessionId).catch(() => {})
+    }
 }
 
 /**
@@ -417,7 +443,12 @@ const executeCommand = async () => {
     }
 
     try {
-        const response = await window.api.redis.executeCommand(commandSessionId.value, commandName, args)
+        const response = await window.api.redis.executeCommand(
+            commandSessionId.value,
+            commandName,
+            args,
+            {source: 'command-panel'}
+        )
 
         if (response.success) {
             const formattedResult = formatRedisCommandResult(response.data?.result)
@@ -671,7 +702,7 @@ const handleDbValueChange = async (value) => {
             commandConnection.value.db_index = nextDbIndex
             dbValue.value = String(nextDbIndex)
             appendSystemLine(t('commandDrawer.messages.dbSwitched', {value: nextDbIndex}), 'success')
-            await fetchCommandServerInfo()
+            await fetchCommandDatabaseSummary()
         } else {
             dbValue.value = String(oldDbIndex)
             appendSystemLine(t('commandDrawer.messages.dbSwitchFail', {
@@ -719,9 +750,24 @@ watch(historyRecord, () => {
 }, {deep: true})
 
 onMounted(() => {
-    // 监听命令抽屉专属连接状态，只更新当前命令会话，不影响页面连接对象。
+    // 同时监听原页面连接和命令独立会话：原连接主动关闭时收起抽屉，运行时异常则由独立会话展示状态。
     removeConnectionStatusListener = window.api.redis.onConnectionStatusChanged((data) => {
-        if (!commandConnection.value || data.connectionId !== commandSessionId.value) {
+        if (!commandConnection.value) {
+            return
+        }
+
+        const sourceConnectionId = commandConnection.value.sourceConnectionId
+        const isSourceConnectionClosed = data.status === 'disconnected'
+            && data.reason === 'manual'
+            && String(data.connectionId) === String(sourceConnectionId)
+
+        if (isSourceConnectionClosed) {
+            ElMessage.info(t('commandDrawer.messages.sourceConnectionClosed'))
+            drawerVisible.value = false
+            return
+        }
+
+        if (data.connectionId !== commandSessionId.value) {
             return
         }
 
@@ -732,7 +778,7 @@ onMounted(() => {
             appendSystemLine(t('commandDrawer.messages.connected', {
                 value: commandConnection.value.db_index ?? 0
             }), 'success')
-            setTimeout(fetchCommandServerInfo, 300)
+            setTimeout(fetchCommandDatabaseSummary, 300)
         }
 
         // 连接失败或异常关闭时，也在面板内显式反馈，而不只是依赖外部 toast。

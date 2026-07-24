@@ -112,6 +112,7 @@
             :has-more="hasMore"
             :loading-more="isLoadingMore"
             :loading-all="isLoadingAll"
+            :limit-reached="isLoadLimitReached"
             @load-all="handleLoadAll"
             @load-more="handleLoadMore"
         />
@@ -373,8 +374,16 @@ import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
 import ValueFormatSelect from '../common/ValueFormatSelect.vue'
 import DetailLoadFooter from './common/DetailLoadFooter.vue'
+import {useKeyDetailBatchRequest} from '../../composables/useKeyDetailBatchRequest.js'
 import {useI18n} from '../../i18n/index.js'
 import {DEFAULT_VALUE_FORMAT_TYPE, formatValueForDisplay, VALUE_FORMAT_TYPES} from '../../utils/valueFormatters/index.js'
+import {
+    hasReachedKeyDetailLimit,
+    KEY_DETAIL_LOAD_ALL_BATCH_SIZE,
+    KEY_DETAIL_PAGE_SIZE,
+    takeKeyDetailItemsWithinLimit,
+    takeUniqueKeyDetailItemsWithinLimit
+} from '../../utils/keyDetailCollectionUtil.js'
 
 // 国际化文案读取函数：驱动 Stream 表格、Entry 弹窗、语言布局和消费组抽屉文案。
 const {t} = useI18n()
@@ -401,9 +410,23 @@ const streamTotalSize = ref(0)
 const rangeMinId = ref('')
 const rangeMaxId = ref('')
 
-// 加载状态：分别控制底部加载按钮，避免重复请求。
-const isLoadingMore = ref(false)
-const isLoadingAll = ref(false)
+// 单页和范围查询请求控制器：切换 Key、停用组件或提交新范围后，旧结果不得继续回写。
+const {
+    loading: isLoadingMore,
+    beginRequest: beginLoadMoreRequest,
+    isRequestCurrent: isLoadMoreRequestCurrent,
+    finishRequest: finishLoadMoreRequest,
+    invalidateRequest: invalidateLoadMoreRequest
+} = useKeyDetailBatchRequest()
+
+// 加载全部请求控制器：逐批写入列表，并在组件停用、销毁或切换 Key 时让旧循环失效。
+const {
+    loading: isLoadingAll,
+    beginRequest: beginLoadAllRequest,
+    isRequestCurrent: isLoadAllRequestCurrent,
+    finishRequest: finishLoadAllRequest,
+    invalidateRequest: invalidateLoadAllRequest
+} = useKeyDetailBatchRequest()
 
 // 当前 ID 查询范围是否已经读完：范围查询可能只覆盖全量 Stream 的一部分，需要独立判断。
 const rangeExhausted = ref(false)
@@ -515,9 +538,6 @@ const savingEntry = ref(false)
 // 正在删除的 Entry ID：用于给对应行的删除按钮显示 loading。
 const deletingEntryId = ref('')
 
-// 每次 Stream 加载数量：和主进程首屏 Stream 加载数量保持一致。
-const STREAM_PAGE_SIZE = 100
-
 // 虚拟表格固定行高：和当前行内按钮尺寸、文本行高保持一致，保证滚动定位稳定。
 const ROW_HEIGHT = 41
 
@@ -527,8 +547,21 @@ const streamDrawerStyle = {
     height: 'calc(100vh - 40px)'
 }
 
-// 当前是否还有未加载 entries：使用已加载数量和总数比较。
-const hasMore = computed(() => !rangeExhausted.value && loadedEntries.value.length < streamTotalSize.value)
+// 是否因为详情展示上限停止加载：Stream 仍有更多消息时提示用户当前结果被截断。
+const isLoadLimitReached = computed(() => (
+    hasReachedKeyDetailLimit(
+        loadedEntries.value.length,
+        streamTotalSize.value,
+        !rangeExhausted.value
+    )
+))
+
+// 当前是否还有可加载 entries：范围未结束、总数未读完且没有达到 renderer 展示上限。
+const hasMore = computed(() => (
+    !rangeExhausted.value &&
+    loadedEntries.value.length < streamTotalSize.value &&
+    !isLoadLimitReached.value
+))
 
 // 是否允许提交新增 Entry：Stream 至少需要一组 field/value，且当前没有提交中的写操作。
 const canSubmitEntry = computed(() => {
@@ -607,7 +640,7 @@ const formatCommandArg = (value) => JSON.stringify(String(value ?? ''))
  * @returns {Promise<unknown>} Redis 原始返回结果
  */
 const runRedisCommand = async (command, args) => {
-    const response = await window.api.redis.executeCommand(props.tabId, command, args)
+    const response = await window.api.redis.executeCommand(props.tabId, command, args, {source: 'key-detail'})
 
     if (!response.success) {
         throw new Error(response.error || t('keyDetailPanels.common.messages.commandFail', {value: command}))
@@ -726,15 +759,17 @@ const mergeEntries = (currentItems, nextItems) => {
  * 读取指定 ID 范围内的 Stream entries。
  * @param {string} maxId 最大 ID，倒序读取的起点
  * @param {string} minId 最小 ID，倒序读取的终点
- * @returns {Promise<{items:Array, size:number}>}
+ * @param {number} count 本轮读取数量
+ * @param {string} key 发起请求时固定的 Key，避免详情切换后误读新 Key
+ * @returns {Promise<{items:Array, size:number, hasMore:boolean}>}
  */
-const fetchStreamRange = async (maxId, minId) => {
+const fetchStreamRange = async (maxId, minId, count = KEY_DETAIL_PAGE_SIZE, key = props.keyData.key) => {
     const response = await window.api.redis.getStreamRange(
         props.tabId,
-        props.keyData.key,
+        key,
         maxId,
         minId,
-        STREAM_PAGE_SIZE
+        count
     )
 
     if (!response.success) {
@@ -745,7 +780,8 @@ const fetchStreamRange = async (maxId, minId) => {
         items: Array.isArray(response.data?.items)
             ? response.data.items.map(normalizeEntry)
             : [],
-        size: Number(response.data?.size) || 0
+        size: Number(response.data?.size) || 0,
+        hasMore: Boolean(response.data?.hasMore)
     }
 }
 
@@ -753,21 +789,36 @@ const fetchStreamRange = async (maxId, minId) => {
  * 按当前范围重新查询 Stream entries。
  */
 const handleRangeSearch = async () => {
-    if (isLoadingMore.value || isLoadingAll.value) {
-        return
+    // 范围查询代表新的读取条件，加载全部期间提交时先停止旧循环，再从新范围首批开始读取。
+    if (isLoadingAll.value) {
+        invalidateLoadAllRequest()
     }
 
-    isLoadingMore.value = true
+    const requestId = beginLoadMoreRequest()
+    const requestKeyData = props.keyData
+    const requestKey = props.keyData.key
 
     try {
-        const {items, size} = await fetchStreamRange(rangeMaxId.value || '+', rangeMinId.value || '-')
+        const {items, size, hasMore: rangeHasMore} = await fetchStreamRange(
+            rangeMaxId.value || '+',
+            rangeMinId.value || '-',
+            KEY_DETAIL_PAGE_SIZE,
+            requestKey
+        )
+
+        if (!isLoadMoreRequestCurrent(requestId) || requestKeyData !== props.keyData || requestKey !== props.keyData.key) {
+            return
+        }
+
         streamTotalSize.value = size
-        loadedEntries.value = items
-        rangeExhausted.value = items.length < STREAM_PAGE_SIZE
+        loadedEntries.value = takeKeyDetailItemsWithinLimit(0, items)
+        rangeExhausted.value = !rangeHasMore
     } catch (error) {
-        ElMessage.error(error.message || t('keyDetailPanels.stream.messages.queryFail'))
+        if (isLoadMoreRequestCurrent(requestId) && requestKeyData === props.keyData && requestKey === props.keyData.key) {
+            ElMessage.error(error.message || t('keyDetailPanels.stream.messages.queryFail'))
+        }
     } finally {
-        isLoadingMore.value = false
+        finishLoadMoreRequest(requestId)
     }
 }
 
@@ -779,20 +830,36 @@ const handleLoadMore = async () => {
         return
     }
 
-    isLoadingMore.value = true
+    const requestId = beginLoadMoreRequest()
+    const requestKeyData = props.keyData
+    const requestKey = props.keyData.key
 
     try {
         const lastEntry = loadedEntries.value[loadedEntries.value.length - 1]
         const nextMaxId = lastEntry?.id ? `(${lastEntry.id}` : (rangeMaxId.value || '+')
-        const {items, size} = await fetchStreamRange(nextMaxId, rangeMinId.value || '-')
+        const {items, size, hasMore: rangeHasMore} = await fetchStreamRange(
+            nextMaxId,
+            rangeMinId.value || '-',
+            KEY_DETAIL_PAGE_SIZE,
+            requestKey
+        )
+
+        if (!isLoadMoreRequestCurrent(requestId) || requestKeyData !== props.keyData || requestKey !== props.keyData.key) {
+            return
+        }
 
         streamTotalSize.value = size
-        loadedEntries.value = mergeEntries(loadedEntries.value, items)
-        rangeExhausted.value = items.length < STREAM_PAGE_SIZE
+        loadedEntries.value = mergeEntries(
+            loadedEntries.value,
+            takeUniqueKeyDetailItemsWithinLimit(loadedEntries.value, items, (item) => String(item?.id ?? ''))
+        )
+        rangeExhausted.value = !rangeHasMore
     } catch (error) {
-        ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadMoreFail'))
+        if (isLoadMoreRequestCurrent(requestId) && requestKeyData === props.keyData && requestKey === props.keyData.key) {
+            ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadMoreFail'))
+        }
     } finally {
-        isLoadingMore.value = false
+        finishLoadMoreRequest(requestId)
     }
 }
 
@@ -800,33 +867,75 @@ const handleLoadMore = async () => {
  * 循环加载当前范围内剩余的全部 Stream entries。
  */
 const handleLoadAll = async () => {
-    if (!hasMore.value || isLoadingMore.value || isLoadingAll.value) {
+    if (isLoadingAll.value) {
+        invalidateLoadAllRequest()
         return
     }
 
-    isLoadingAll.value = true
+    if (!hasMore.value || isLoadingMore.value) {
+        return
+    }
+
+    const requestId = beginLoadAllRequest()
+    const requestKeyData = props.keyData
+    const requestKey = props.keyData.key
 
     try {
-        while (loadedEntries.value.length < streamTotalSize.value) {
+        let latestSize = streamTotalSize.value
+        let exhausted = rangeExhausted.value
+
+        while (
+            loadedEntries.value.length < latestSize &&
+            !exhausted &&
+            !hasReachedKeyDetailLimit(loadedEntries.value.length, latestSize, !exhausted)
+        ) {
             const beforeLength = loadedEntries.value.length
             const lastEntry = loadedEntries.value[loadedEntries.value.length - 1]
             const nextMaxId = lastEntry?.id ? `(${lastEntry.id}` : (rangeMaxId.value || '+')
-            const {items, size} = await fetchStreamRange(nextMaxId, rangeMinId.value || '-')
+            const {items, size, hasMore: rangeHasMore} = await fetchStreamRange(
+                nextMaxId,
+                rangeMinId.value || '-',
+                KEY_DETAIL_LOAD_ALL_BATCH_SIZE,
+                requestKey
+            )
 
-            streamTotalSize.value = size
-            loadedEntries.value = mergeEntries(loadedEntries.value, items)
-            rangeExhausted.value = items.length < STREAM_PAGE_SIZE
+            if (
+                !isLoadAllRequestCurrent(requestId) ||
+                requestKeyData !== props.keyData ||
+                requestKey !== props.keyData.key
+            ) {
+                return
+            }
+
+            const appendItems = takeUniqueKeyDetailItemsWithinLimit(
+                loadedEntries.value,
+                items,
+                (item) => String(item?.id ?? '')
+            )
+
+            latestSize = size
+            exhausted = !rangeHasMore
+            streamTotalSize.value = latestSize
+            loadedEntries.value = mergeEntries(loadedEntries.value, appendItems)
+            rangeExhausted.value = exhausted
 
             // 如果本轮没有新增数据，说明范围已经读完，避免极端情况下死循环。
-            if (loadedEntries.value.length === beforeLength || items.length === 0) {
+            if (loadedEntries.value.length === beforeLength || appendItems.length === 0) {
+                exhausted = true
                 rangeExhausted.value = true
                 break
             }
         }
     } catch (error) {
-        ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadAllFail'))
+        if (
+            isLoadAllRequestCurrent(requestId) &&
+            requestKeyData === props.keyData &&
+            requestKey === props.keyData.key
+        ) {
+            ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadAllFail'))
+        }
     } finally {
-        isLoadingAll.value = false
+        finishLoadAllRequest(requestId)
     }
 }
 
@@ -913,6 +1022,15 @@ const handleSaveEntry = async () => {
         return
     }
 
+    // 新消息会改变范围分页边界，提交前停止旧循环，避免继续沿用旧的末尾消息 ID。
+    if (isLoadingMore.value) {
+        invalidateLoadMoreRequest()
+    }
+
+    if (isLoadingAll.value) {
+        invalidateLoadAllRequest()
+    }
+
     savingEntry.value = true
 
     try {
@@ -936,8 +1054,11 @@ const handleSaveEntry = async () => {
             fields
         })
 
-        // XREVRANGE 首屏按新到旧展示，新增成功后直接插到本地列表顶部，避免重新拉取导致滚动位置跳动。
-        loadedEntries.value = [normalizedEntry, ...loadedEntries.value]
+        // 只有当前范围包含最新消息时才插入列表；固定 maxId 的历史范围不应混入刚创建的消息。
+        const normalizedRangeMaxId = rangeMaxId.value.trim()
+        if (!normalizedRangeMaxId || normalizedRangeMaxId === '+') {
+            loadedEntries.value = [normalizedEntry, ...loadedEntries.value]
+        }
         streamTotalSize.value += 1
         entryEditorVisible.value = false
         ElMessage.success(t('keyDetailPanels.stream.messages.entryAdded'))
@@ -1003,6 +1124,14 @@ const handleDeleteEntry = async (row) => {
             }
         )
 
+        if (isLoadingMore.value) {
+            invalidateLoadMoreRequest()
+        }
+
+        if (isLoadingAll.value) {
+            invalidateLoadAllRequest()
+        }
+
         deletingEntryId.value = row.id
         const deleteResult = await runRedisCommand('XDEL', [props.keyData.key, row.id])
 
@@ -1028,11 +1157,13 @@ const handleDeleteEntry = async (row) => {
 watch(
     () => props.keyData,
     (nextKeyData) => {
+        invalidateLoadMoreRequest()
+        invalidateLoadAllRequest()
         loadedEntries.value = Array.isArray(nextKeyData?.value)
             ? nextKeyData.value.map(normalizeEntry)
             : []
         streamTotalSize.value = Number(nextKeyData?.size) || loadedEntries.value.length
-        rangeExhausted.value = loadedEntries.value.length < STREAM_PAGE_SIZE
+        rangeExhausted.value = loadedEntries.value.length >= streamTotalSize.value
         rangeMinId.value = ''
         rangeMaxId.value = ''
         groups.value = []
@@ -1042,8 +1173,6 @@ watch(
         entryViewerVisible.value = false
         savingEntry.value = false
         deletingEntryId.value = ''
-        isLoadingMore.value = false
-        isLoadingAll.value = false
     },
     {immediate: true}
 )
@@ -1057,7 +1186,6 @@ watch(
     height: 100%;
     min-height: 0;
     flex-direction: column;
-    background: var(--el-bg-color);
 }
 
 /* 工具栏：左侧业务入口，右侧 ID 范围查询，保持单行稳定布局。 */

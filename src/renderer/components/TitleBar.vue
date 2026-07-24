@@ -16,8 +16,23 @@
         <!-- Electron 窗口拖拽区域：占据标题栏剩余空间。 -->
         <div class="drag-container"></div>
 
-        <!-- 标题栏控制区：设置、刷新、主题切换和窗口控制按钮。 -->
+        <!-- 标题栏控制区：开发者命令记录、设置、刷新、主题切换和窗口控制按钮。 -->
         <div class="control-container">
+            <el-tooltip
+                v-if="developerMode"
+                :content="t('titleBar.commandHistory')"
+                placement="bottom"
+                :show-after="200"
+                :offset="6"
+            >
+                <button class="ctrl ctrl-settings" @click="openCommandHistory">
+                    <span class="chip">
+                        <el-icon size="18">
+                            <HistoryQuery/>
+                        </el-icon>
+                    </span>
+                </button>
+            </el-tooltip>
             <el-tooltip :content="t('titleBar.settings')" placement="bottom" :show-after="200" :offset="6">
                 <button class="ctrl ctrl-settings" @click="openSetting">
                     <span class="chip">
@@ -72,14 +87,20 @@
     <CloseConfirmDialog v-if="closeConfirmDialogVisible" v-model:visible="closeConfirmDialogVisible"/>
     <!-- 设置抽屉 -->
     <SettingsDrawer v-model:visible="showSettingsDrawerVisible"/>
+    <!-- Redis 命令执行记录仅作为开发者工具挂载。 -->
+    <RedisCommandHistoryDrawer
+        v-if="developerMode"
+        v-model:visible="showCommandHistoryDrawerVisible"
+    />
 </template>
 
 <script setup>
-import {Close, FullScreen, Minus, Moon, Refresh, SettingTwo, SunOne} from '@icon-park/vue-next';
-import {computed, onBeforeUnmount, onMounted, ref} from "vue";
+import {Close, FullScreen, HistoryQuery, Minus, Moon, Refresh, SettingTwo, SunOne} from '@icon-park/vue-next';
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {eventBus} from "../utils/eventBus.js";
 import CloseConfirmDialog from "./dialog/CloseConfirmDialog.vue";
 import SettingsDrawer from "./drawer/SettingsDrawer.vue";
+import RedisCommandHistoryDrawer from "./drawer/RedisCommandHistoryDrawer.vue";
 import {storeToRefs} from "pinia";
 import {useUserSettingsStore} from "../stores/modules/userSettingsStore.js";
 import {useAppUpdateStore} from "../stores/modules/appUpdateStore.js";
@@ -89,12 +110,13 @@ import {useI18n} from "../i18n/index.js";
 // 标题栏本地状态：控制关闭确认弹窗与设置抽屉的显示。
 const closeConfirmDialogVisible = ref(false)
 const showSettingsDrawerVisible = ref(false)
+const showCommandHistoryDrawerVisible = ref(false)
 
 // 国际化文案读取函数：驱动标题栏 tooltip 文案。
 const {t} = useI18n()
 
 // 用户设置 Store：主题、主题色、关闭行为配置驱动标题栏按钮和关闭逻辑。
-const {theme, color, closeManagement} = storeToRefs(useUserSettingsStore())
+const {theme, color, closeManagement, developerMode} = storeToRefs(useUserSettingsStore())
 const {setTheme, setColor} = useUserSettingsStore()
 const appUpdateStore = useAppUpdateStore()
 const {hasAvailableUpdate} = storeToRefs(appUpdateStore)
@@ -108,6 +130,13 @@ const isDarkMode = computed(() => {
 const handleOpenSettingEvent = () => {
     openSetting()
 }
+
+// 开发者模式关闭后立即销毁命令记录 Drawer，避免隐藏入口后仍保留可见工具窗口。
+watch(developerMode, (enabled) => {
+    if (!enabled) {
+        showCommandHistoryDrawerVisible.value = false
+    }
+})
 
 onMounted(() => {
     // 监听全局打开设置事件，允许其他组件唤起设置抽屉。
@@ -184,6 +213,16 @@ const onClose = () => {
  */
 const openSetting = () => {
     showSettingsDrawerVisible.value = true
+}
+
+/**
+ * 打开 Redis 命令执行记录 Drawer。
+ * 入口仅在开发者模式开启时渲染，这里仍做状态保护，避免异步切换期间误打开。
+ */
+const openCommandHistory = () => {
+    if (developerMode.value) {
+        showCommandHistoryDrawerVisible.value = true
+    }
 }
 
 /**
@@ -280,7 +319,8 @@ const initializeAutoUpdateCheck = async () => {
     background: #1e1e24;
 }
 
-/* 设置按钮内部 chip：让设置按钮悬浮反馈更克制，不占满标题栏高度。 */
+/* 全局工具按钮内部 chip：让开发者工具和设置按钮使用一致的悬浮反馈。 */
+.ctrl.ctrl-tool .chip,
 .ctrl.ctrl-settings .chip {
     position: relative;
     height: 30px;
@@ -303,10 +343,12 @@ const initializeAutoUpdateCheck = async () => {
     background: #f56c6c;
 }
 
+.ctrl.ctrl-tool:hover .chip,
 .ctrl.ctrl-settings:hover .chip {
     background: rgba(0, 0, 0, 0.6);
 }
 
+.ctrl.ctrl-tool:active .chip,
 .ctrl.ctrl-settings:active .chip {
     background: rgba(0, 0, 0, 0.8);
 }

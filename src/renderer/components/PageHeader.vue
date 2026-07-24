@@ -71,7 +71,7 @@
                 <el-tooltip :content="t('pageHeader.tooltips.connectionCount')" placement="bottom" :show-after="200" :offset="12">
                     <span class="performance">
                         <el-icon size="20" class="icon"><AddUser/></el-icon>
-                        <el-text v-if="currOpenedConnectionConfig.status === 'connected'">{{ currOpenedConnectionConfig.connection_count ?? '0' }}</el-text>
+                        <el-text v-if="currOpenedConnectionConfig.status === 'connected'">{{ serverSummary.connectionCount }}</el-text>
                     </span>
                 </el-tooltip>
             </div>
@@ -82,7 +82,7 @@
                 <el-tooltip :content="t('pageHeader.tooltips.cpuUsage')" placement="bottom" :show-after="200" :offset="12">
                     <span class="performance">
                         <el-icon size="20" class="icon"><Cpu/></el-icon>
-                        <el-text v-if="currOpenedConnectionConfig.status === 'connected'">{{ currOpenedConnectionConfig.cpu_usage ?? '0' }}%</el-text>
+                        <el-text v-if="currOpenedConnectionConfig.status === 'connected'">{{ serverSummary.cpuUsage }}%</el-text>
                     </span>
                 </el-tooltip>
             </div>
@@ -93,7 +93,7 @@
                 <el-tooltip :content="t('pageHeader.tooltips.memoryUsage')" placement="bottom" :show-after="200" :offset="12">
                     <span class="performance">
                         <el-icon size="20" class="icon"><DashboardOne/></el-icon>
-                        <el-text v-if="currOpenedConnectionConfig.status === 'connected'">{{ currOpenedConnectionConfig.memory_usage ?? '0' }}</el-text>
+                        <el-text v-if="currOpenedConnectionConfig.status === 'connected'">{{ serverSummary.memoryUsage }}</el-text>
                     </span>
                 </el-tooltip>
             </div>
@@ -104,7 +104,7 @@
                 <el-tooltip :content="t('pageHeader.tooltips.totalKeys')" placement="bottom" :show-after="200" :offset="12">
                     <span class="performance">
                         <el-icon size="20" class="icon"><Key/></el-icon>
-                        <el-text v-if="currOpenedConnectionConfig.status === 'connected'">{{ currOpenedConnectionConfig.total_keys ?? '0' }}</el-text>
+                        <el-text v-if="currOpenedConnectionConfig.status === 'connected'">{{ serverSummary.totalKeys }}</el-text>
                     </span>
                 </el-tooltip>
             </div>
@@ -131,7 +131,7 @@
 import {AddUser, CodeOne, Cpu, DashboardOne, Key, MenuFoldOne, MenuUnfoldOne, Refresh} from '@icon-park/vue-next'
 
 import {storeToRefs} from 'pinia'
-import {computed, onMounted, onUnmounted, ref, watch} from 'vue'
+import {computed, ref, watch} from 'vue'
 import {ElMessage} from 'element-plus'
 import {useI18n} from '../i18n/index.js'
 import {eventBus} from '../utils/eventBus.js'
@@ -153,12 +153,32 @@ const dbValue = ref('0');
 const dbSizeMap = ref({})
 // Redis 实际数据库数量：优先来自后端 CONFIG GET databases，失败时保持默认 16。
 const databaseCount = ref(DEFAULT_DATABASE_COUNT)
-// Redis 连接状态监听解绑函数：避免页头组件重复挂载时累积同类监听。
-let removeConnectionStatusListener = null
+// 当前活动连接的服务器摘要：只服务 PageHeader 展示，不写入持久配置或页签运行快照。
+const serverSummary = ref({
+    connectionCount: '0',
+    cpuUsage: 0,
+    memoryUsage: '0',
+    totalKeys: '0'
+})
+// 摘要请求序号：快速切换连接时只允许最新请求更新当前页头。
+let serverSummaryRequestId = 0
 // Redis 详情抽屉显示状态：点击头部“更多”按钮后从右侧打开。
 const redisInfoDrawerVisible = ref(false)
 // DB 下拉选项：按 Redis 实际数据库数量生成，并合并实时 Keyspace 数量。
 const dbOptions = computed(() => buildDbOptions(databaseCount.value, dbSizeMap.value))
+
+/**
+ * 清空当前页头的服务器摘要。
+ * 切换连接或连接断开时立即调用，避免短暂展示上一条连接的数据。
+ */
+const resetServerSummary = () => {
+    serverSummary.value = {
+        connectionCount: '0',
+        cpuUsage: 0,
+        memoryUsage: '0',
+        totalKeys: '0'
+    }
+}
 
 // 监听当前活动连接的 db_index：切换连接页签或切库后，同步更新头部下拉显示值。
 watch(
@@ -191,31 +211,47 @@ const updateDatabaseCount = (count) => {
  * 数据库索引值改变事件
  */
 const handleDbValueChange = async (value) => {
-    // 获取旧值
-    const old_db_Index = currOpenedConnectionConfig.value.db_index;
+    const connectionId = activeConnectionConfigId.value
+    const connectionConfig = currOpenedConnectionConfig.value
+    const oldDbIndex = connectionConfig.db_index
+
     try {
         // 将字符串转换为整数
         const dbIndex = parseInt(value, 10);
 
         // 更新数据库中的 db_index（使用专门的方法，避免完整验证）
-        const result = await window.api.redis.selectDatabase(activeConnectionConfigId.value, dbIndex);
+        const result = await window.api.redis.selectDatabase(connectionId, dbIndex);
 
         // 更新打开的连接的数据库索引
         if (result.success) {
-            currOpenedConnectionConfig.value.db_index = dbIndex;
+            connectionConfig.db_index = dbIndex;
+
+            // 切换请求完成前若用户已打开其他连接，只更新原连接配置，不污染当前页头。
+            if (connectionId !== activeConnectionConfigId.value) {
+                return
+            }
+
             ElMessage.success(t('pageHeader.messages.switchDbSuccess').replace('{value}', `DB ${dbIndex}`));
-            // 切换库后刷新 INFO 信息
-            await fetchServerInfo()
+            // 切换库后刷新当前 DB 的 Key 数和页面运行摘要。
+            await fetchServerSummary()
         } else {
+            if (connectionId !== activeConnectionConfigId.value) {
+                return
+            }
+
             ElMessage.error(`${t('pageHeader.messages.switchDbFail')}: ${result.error}`);
             // 恢复旧值
-            dbValue.value = String(old_db_Index);
+            dbValue.value = String(oldDbIndex);
         }
     } catch (error) {
+        if (connectionId !== activeConnectionConfigId.value) {
+            return
+        }
+
         ElMessage.error(`${t('pageHeader.messages.updateDbIndexFail')}: ${error.message || error}`);
 
         // 恢复旧值
-        dbValue.value = String(old_db_Index);
+        dbValue.value = String(oldDbIndex);
     }
 }
 
@@ -228,10 +264,17 @@ const handleRefresh = async () => {
         return;
     }
 
-    await fetchServerInfo();
+    const connectionId = activeConnectionConfigId.value
+    await fetchServerSummary();
+
+    // 刷新期间切换连接时，旧操作不应重置新连接的 Key 列表与详情区。
+    if (connectionId !== activeConnectionConfigId.value) {
+        return
+    }
+
     // 顶部刷新不仅更新连接指标，也需要重置当前激活连接页的 Key 列表与详情区。
     eventBus.emit('reset-page-info', {
-        tabId: activeConnectionConfigId.value
+        tabId: connectionId
     })
 }
 
@@ -248,23 +291,37 @@ const handleOpenRedisInfo = () => {
 }
 
 /**
- * 获取 Redis 服务器实时状态信息
+ * 获取页面 Header 使用的 Redis 运行摘要。
+ * 请求期间若切换了连接，旧连接返回的数据会被忽略。
  */
-const fetchServerInfo = async () => {
-    if (currOpenedConnectionConfig.value.status !== 'connected') return
+const fetchServerSummary = async () => {
+    if (currOpenedConnectionConfig.value.status !== 'connected') {
+        return
+    }
+
+    const connectionId = activeConnectionConfigId.value
+    const requestId = ++serverSummaryRequestId
+
     try {
-        const result = await window.api.redis.getServerInfo(activeConnectionConfigId.value)
+        const result = await window.api.redis.getServerSummary(connectionId)
+        if (requestId !== serverSummaryRequestId || connectionId !== activeConnectionConfigId.value) {
+            return
+        }
+
         if (result.success && result.data) {
             updateDatabaseCount(result.data.databaseCount)
             updateDbSizeMap(result.data.summary?.keyspace)
-            // 格式化数字：1000 → 1K, 1000000 → 1M
-            const fmt = (n) => n >= 1000000 ? (n / 1000000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n)
-            currOpenedConnectionConfig.value.connection_count = fmt(result.data.connectedClients)
-            currOpenedConnectionConfig.value.cpu_usage = result.data.cpuUsage
-            currOpenedConnectionConfig.value.memory_usage = result.data.usedMemoryHuman
-            currOpenedConnectionConfig.value.total_keys = fmt(result.data.totalKeys)
+            serverSummary.value = {
+                connectionCount: formatDbSize(result.data.connectedClients),
+                cpuUsage: result.data.cpuUsage,
+                memoryUsage: result.data.usedMemoryHuman,
+                totalKeys: formatDbSize(result.data.totalKeys)
+            }
         }
     } catch (error) {
+        if (requestId !== serverSummaryRequestId || connectionId !== activeConnectionConfigId.value) {
+            return
+        }
         ElMessage.error(`${t('pageHeader.messages.fetchServerInfoFail')}: ${error.message || error}`)
     }
 }
@@ -273,31 +330,19 @@ const fetchServerInfo = async () => {
 watch(
     () => [activeConnectionConfigId.value, currOpenedConnectionConfig.value?.status],
     ([, status]) => {
+        // 连接或状态变化后立即让上一轮异步请求失效，防止旧数据覆盖新页签。
+        serverSummaryRequestId += 1
         const currentDbIndex = Number(currOpenedConnectionConfig.value?.db_index) || 0
         dbSizeMap.value = {}
         databaseCount.value = Math.max(DEFAULT_DATABASE_COUNT, currentDbIndex + 1)
+        resetServerSummary()
 
         if (status === 'connected') {
-            setTimeout(fetchServerInfo, 0)
+            fetchServerSummary()
         }
     },
     {immediate: true}
 )
-
-// 连接状态变化时自动获取服务器信息
-onMounted(() => {
-    removeConnectionStatusListener = window.api.redis.onConnectionStatusChanged((data) => {
-        // 只响应当前活动连接的状态变化，避免命令面板等独立会话误触发页头 INFO 刷新。
-        if (data.status === 'connected' && data.connectionId === activeConnectionConfigId.value) {
-            setTimeout(fetchServerInfo, 500)
-        }
-    })
-})
-
-onUnmounted(() => {
-    // 释放页头组件自己的连接状态监听，避免 KeepAlive / 重建场景下重复注册。
-    removeConnectionStatusListener?.()
-})
 </script>
 
 <style scoped>

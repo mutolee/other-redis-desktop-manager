@@ -6,7 +6,7 @@
     <!-- 虚拟触发上下文菜单：复用一个 Popover，避免每个菜单项都挂载一份右键菜单。 -->
     <el-popover
         v-model:visible="contextMenuVisible"
-        trigger="click"
+        trigger="manual"
         :width="contextMenuWidth"
         :hide-after="10"
         virtual-triggering
@@ -17,24 +17,25 @@
             v-if="menuType === 'group'"
             @select="handleContextMenuCommand"
         >
-            <el-menu-item index="rename-folder">
-                <el-icon style="margin-right: 6px;">
-                    <Edit/>
-                </el-icon>
-                <span>{{ t('dialogs.contextMenu.renameGroup') }}</span>
-            </el-menu-item>
-            <el-menu-item index="delete-folder">
-                <el-icon style="margin-right: 6px;">
-                    <Delete/>
-                </el-icon>
-                <span>{{ t('dialogs.contextMenu.deleteGroup') }}</span>
-            </el-menu-item>
             <el-menu-item index="add-connection">
                 <el-icon style="margin-right: 6px;">
                     <Plus/>
                 </el-icon>
                 <span>{{ t('dialogs.contextMenu.addConnection') }}</span>
             </el-menu-item>
+            <el-menu-item index="rename-folder">
+                <el-icon style="margin-right: 6px;">
+                    <Edit/>
+                </el-icon>
+                <span>{{ t('dialogs.contextMenu.renameGroup') }}</span>
+            </el-menu-item>
+            <el-menu-item class="danger-menu-item" index="delete-folder">
+                <el-icon style="margin-right: 6px;">
+                    <Delete/>
+                </el-icon>
+                <span>{{ t('dialogs.contextMenu.deleteGroup') }}</span>
+            </el-menu-item>
+
         </el-menu>
         <el-menu
             v-else
@@ -46,17 +47,11 @@
                 </el-icon>
                 <span>{{ t('dialogs.contextMenu.editConnection') }}</span>
             </el-menu-item>
-            <el-menu-item index="delete-connection">
+            <el-menu-item index="copy-connect">
                 <el-icon style="margin-right: 6px;">
-                    <Delete/>
+                    <MinusTheTop/>
                 </el-icon>
-                <span>{{ t('dialogs.contextMenu.deleteConnection') }}</span>
-            </el-menu-item>
-            <el-menu-item index="open-command">
-                <el-icon style="margin-right: 6px;">
-                    <CodeOne/>
-                </el-icon>
-                <span>{{ t('dialogs.contextMenu.openCommand') }}</span>
+                <span>{{ t('dialogs.contextMenu.copyConnection') }}</span>
             </el-menu-item>
             <el-menu-item index="move-to-folder">
                 <el-icon style="margin-right: 6px;">
@@ -64,11 +59,17 @@
                 </el-icon>
                 <span>{{ t('dialogs.contextMenu.moveToGroup') }}</span>
             </el-menu-item>
-            <el-menu-item index="copy-connect">
+            <el-menu-item index="open-command">
                 <el-icon style="margin-right: 6px;">
-                    <MinusTheTop/>
+                    <CodeOne/>
                 </el-icon>
-                <span>{{ t('dialogs.contextMenu.copyConnection') }}</span>
+                <span>{{ t('dialogs.contextMenu.openCommand') }}</span>
+            </el-menu-item>
+            <el-menu-item class="danger-menu-item" index="delete-connection">
+                <el-icon style="margin-right: 6px;">
+                    <Delete/>
+                </el-icon>
+                <span>{{ t('dialogs.contextMenu.deleteConnection') }}</span>
             </el-menu-item>
         </el-menu>
     </el-popover>
@@ -176,5 +177,11 @@ const handleContextMenuCommand = async (command) => {
 
 .connection-config-context-menu-popover .el-menu-item:hover {
     color: var(--el-color-primary) !important;
+}
+
+/* 删除连接和删除分组属于不可逆操作，使用危险色保持清晰提示。 */
+.connection-config-context-menu-popover .el-menu-item.danger-menu-item,
+.connection-config-context-menu-popover .el-menu-item.danger-menu-item:hover {
+    color: var(--el-color-danger) !important;
 }
 </style>

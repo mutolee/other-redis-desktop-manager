@@ -256,6 +256,7 @@ export default {
                 updateSuccess: '连接配置更新成功',
                 updateFail: '更新连接配置失败: ',
                 missingId: '连接配置ID不存在',
+                closeBeforeEdit: '该连接已打开，请先关闭连接页签后再编辑',
                 testing: '正在测试连接...',
                 testSuccess: '测试连接成功',
                 testFail: '测试连接失败: ',
@@ -346,6 +347,7 @@ export default {
                 connecting: '正在连接命令面板：{value} ...',
                 connected: '命令面板连接成功，当前数据库 DB {value}。',
                 disconnected: '命令面板连接已断开。',
+                sourceConnectionClosed: '原连接已关闭，命令面板已同步关闭。',
                 noConnection: '当前没有可用连接',
                 noConnectionDetail: '当前没有可用连接，请先打开一个 Redis 连接。',
                 connectFirst: '请先连接数据库',
@@ -467,6 +469,7 @@ export default {
             }
         },
         titleBar: {
+            commandHistory: 'Redis 命令执行记录',
             settings: '设置',
             reload: '重新加载窗体',
             switchToLight: '切换到浅色模式',
@@ -551,6 +554,7 @@ export default {
             noData: '暂无数据',
             loadMore: '加载更多',
             loadAll: '加载全部',
+            stopLoading: '停止加载',
             exportSelection: {
                 selectAll: '全选',
                 clearSelection: '取消全选',
@@ -656,6 +660,8 @@ export default {
                 scanned: '已分析 Key',
                 totalMemory: '总占用',
                 status: '扫描状态',
+                scanning: '扫描中',
+                failed: '扫描失败',
                 completed: '已完成',
                 reachedLimit: '达到上限'
             },
@@ -705,6 +711,63 @@ export default {
                 copyFail: '复制命令失败'
             }
         },
+        commandHistory: {
+            title: 'Redis 命令执行记录',
+            searchPlaceholder: '搜索连接、命令、参数或错误信息',
+            empty: '暂无 Redis 命令执行记录',
+            limitTip: '仅保留最近 {value} 条记录，关闭应用后清空',
+            actions: {
+                search: '搜索',
+                refresh: '刷新',
+                clear: '清空日志'
+            },
+            filters: {
+                connection: '全部连接',
+                source: '全部来源',
+                status: '全部状态'
+            },
+            status: {
+                success: '成功',
+                error: '失败',
+                timeout: '超时'
+            },
+            sources: {
+                rendererCommand: '渲染进程命令',
+                commandPanel: '命令面板',
+                keyList: 'Key 列表',
+                keyDetail: 'Key 详情',
+                memoryAnalysis: '内存分析',
+                directoryPreview: '目录预览',
+                batchDelete: '批量删除',
+                keyExport: '导出 Key',
+                keyImport: '导入 Key',
+                slowLog: '慢查询',
+                serverInfo: '服务器信息',
+                databaseSelector: '数据库切换',
+                connectionTest: '连接测试'
+            },
+            pipelineOmitted: '省略 {value} 条子命令',
+            table: {
+                time: '时间',
+                connection: '连接',
+                db: 'DB',
+                source: '来源',
+                command: '命令',
+                args: '参数',
+                duration: '耗时',
+                status: '状态'
+            },
+            confirm: {
+                clearTitle: '清空命令记录',
+                clearMessage: '确认清空当前保存的所有 Redis 命令执行记录吗？该操作不可恢复。',
+                clearConfirm: '确认清空'
+            },
+            messages: {
+                loadFail: '命令记录加载失败',
+                clearSuccess: '已清空 {value} 条命令记录',
+                clearFail: '命令记录清空失败'
+            }
+        },
         deleteDirectoryKeys: {
             title: '删除目录 Key',
             currentConnection: '当前连接',
@@ -717,6 +780,8 @@ export default {
                 directory: '目录',
                 keyCount: 'Key 数量',
                 status: '扫描状态',
+                scanning: '扫描中',
+                failed: '扫描失败',
                 completed: '已完成',
                 reachedLimit: '达到上限'
             },
@@ -786,6 +851,8 @@ export default {
                 refresh: '刷新',
                 loadMore: '加载更多',
                 loadAll: '加载全部',
+                stopLoading: '停止加载',
+                loadLimitReached: '为保证页面流畅，最多展示 {value} 条数据',
                 valuePlaceholder: '请输入 Value',
                 memberPlaceholder: '请输入 Member',
                 viewMemberTitle: '查看成员',
@@ -820,8 +887,19 @@ export default {
                 }
             },
             string: {
+                loadFull: '加载完整内容',
+                previewNotice: '当前仅展示前 {loaded}，完整 Value 大小为 {total}。解析和复制内容均基于当前预览。',
+                confirmLoadFull: {
+                    title: '加载超大 String',
+                    message: '完整 Value 大小为 {value}，加载后会占用较多内存，并可能使页面短暂卡顿。是否继续？',
+                    confirmButton: '继续加载'
+                },
                 messages: {
-                    saveFail: '保存 String 失败'
+                    saveFail: '保存 String 失败',
+                    loadFullFail: '加载完整 String 失败',
+                    loadFullSuccess: '完整内容已加载',
+                    loadFullBeforeEdit: '请先加载完整内容后再编辑',
+                    loadFullBeforeCopy: '请先加载完整内容后再复制 SET 命令'
                 }
             },
             hash: {
@@ -955,6 +1033,8 @@ export default {
         sideBar: {
             messages: {
                 exportModeSelectDisabled: '导出模式下无法选择连接',
+                loadConnectionFail: '加载连接列表失败',
+                searchConnectionFail: '搜索连接失败',
                 openConnectionFail: '打开连接失败',
                 deleteConnectionSuccess: '连接配置删除成功',
                 deleteConnectionFail: '删除连接配置失败',

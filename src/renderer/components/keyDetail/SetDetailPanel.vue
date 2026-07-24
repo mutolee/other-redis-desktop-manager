@@ -93,6 +93,7 @@
             :has-more="hasMore"
             :loading-more="isLoadingMore"
             :loading-all="isLoadingAll"
+            :limit-reached="isLoadLimitReached"
             @load-all="handleLoadAll"
             @load-more="handleLoadMore"
         />
@@ -185,8 +186,15 @@ import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
 import ValueFormatSelect from '../common/ValueFormatSelect.vue'
 import DetailLoadFooter from './common/DetailLoadFooter.vue'
+import {useKeyDetailBatchRequest} from '../../composables/useKeyDetailBatchRequest.js'
 import {useI18n} from '../../i18n/index.js'
 import {DEFAULT_VALUE_FORMAT_TYPE, formatValueForDisplay} from '../../utils/valueFormatters/index.js'
+import {
+    hasReachedKeyDetailLimit,
+    KEY_DETAIL_LOAD_ALL_BATCH_SIZE,
+    KEY_DETAIL_PAGE_SIZE,
+    takeUniqueKeyDetailItemsWithinLimit
+} from '../../utils/keyDetailCollectionUtil.js'
 
 // 国际化文案读取函数：驱动 Set 表格、弹窗和操作反馈文案。
 const {t} = useI18n()
@@ -242,17 +250,26 @@ const setCursor = ref('0')
 // 当前 Set 总成员数：初始来自 keyData.size，后续每次分页请求后用后端 SCARD 结果校正。
 const setTotalSize = ref(0)
 
-// 加载更多状态：控制底部“加载更多”按钮 loading 和重复点击保护。
-const isLoadingMore = ref(false)
+// 加载更多请求控制器：切换 Key、停用组件或写入数据后，旧分页结果不得继续回写。
+const {
+    loading: isLoadingMore,
+    beginRequest: beginLoadMoreRequest,
+    isRequestCurrent: isLoadMoreRequestCurrent,
+    finishRequest: finishLoadMoreRequest,
+    invalidateRequest: invalidateLoadMoreRequest
+} = useKeyDetailBatchRequest()
 
-// 加载全部状态：控制底部“加载全部”按钮 loading 和重复点击保护。
-const isLoadingAll = ref(false)
+// 加载全部请求控制器：逐批写入列表，并在组件停用、销毁或切换 Key 时让旧循环失效。
+const {
+    loading: isLoadingAll,
+    beginRequest: beginLoadAllRequest,
+    isRequestCurrent: isLoadAllRequestCurrent,
+    finishRequest: finishLoadAllRequest,
+    invalidateRequest: invalidateLoadAllRequest
+} = useKeyDetailBatchRequest()
 
 // 虚拟表格固定行高：和当前行内按钮尺寸、文本行高保持一致，保证滚动定位稳定。
 const ROW_HEIGHT = 41
-
-// 每次 SSCAN 建议扫描数量：和主进程首屏 Set 加载数量保持一致。
-const SET_PAGE_SIZE = 100
 
 // 当前是否处于编辑已有成员模式：编辑时会把旧 Member 替换成新 Member。
 const isEditMode = computed(() => memberEditorMode.value === 'edit')
@@ -265,8 +282,13 @@ const memberEditorTitle = computed(() => (
 // 是否允许提交成员表单：Member 不能为空，且当前没有提交中的写操作。
 const canSubmitMember = computed(() => Boolean(memberForm.member.trim()) && !savingMember.value)
 
-// 当前是否仍有未扫描成员：SSCAN 只能通过 cursor 是否归零判断是否结束。
-const hasMore = computed(() => setCursor.value !== '0')
+// 是否因为详情展示上限停止加载：SSCAN 游标仍未归零时提示用户当前结果被截断。
+const isLoadLimitReached = computed(() => (
+    hasReachedKeyDetailLimit(members.value.length, setTotalSize.value, setCursor.value !== '0')
+))
+
+// 当前是否仍有可加载成员：SSCAN 游标未归零且没有达到 renderer 展示上限。
+const hasMore = computed(() => setCursor.value !== '0' && !isLoadLimitReached.value)
 
 /**
  * 统一 Set 成员结构，兼容旧数据中直接保存字符串的情况。
@@ -376,7 +398,7 @@ const mergeSetMembers = (currentItems, nextItems) => {
  * @returns {Promise<unknown>} Redis 原始返回结果
  */
 const runRedisCommand = async (command, args) => {
-    const response = await window.api.redis.executeCommand(props.tabId, command, args)
+    const response = await window.api.redis.executeCommand(props.tabId, command, args, {source: 'key-detail'})
 
     if (!response.success) {
         throw new Error(response.error || t('keyDetailPanels.common.messages.commandFail', {value: command}))
@@ -388,14 +410,16 @@ const runRedisCommand = async (command, args) => {
 /**
  * 按 cursor 扫描下一段 Set 成员。
  * @param {string} cursor SSCAN 当前游标
+ * @param {number} count 本轮建议扫描数量
+ * @param {string} key 发起请求时固定的 Key，避免详情切换后误读新 Key
  * @returns {Promise<{items:Array<string>, cursor:string, size:number}>}
  */
-const fetchSetRange = async (cursor) => {
+const fetchSetRange = async (cursor, count = KEY_DETAIL_PAGE_SIZE, key = props.keyData.key) => {
     const response = await window.api.redis.getSetRange(
         props.tabId,
-        props.keyData.key,
+        key,
         cursor,
-        SET_PAGE_SIZE
+        count
     )
 
     if (!response.success) {
@@ -439,6 +463,15 @@ const handleEditMember = (member) => {
 const handleSaveMember = async () => {
     if (!canSubmitMember.value) {
         return
+    }
+
+    // 写操作会改变扫描结果，提交前停止加载全部，避免游标继续基于旧集合状态推进。
+    if (isLoadingMore.value) {
+        invalidateLoadMoreRequest()
+    }
+
+    if (isLoadingAll.value) {
+        invalidateLoadAllRequest()
     }
 
     savingMember.value = true
@@ -536,17 +569,29 @@ const handleLoadMore = async () => {
         return
     }
 
-    isLoadingMore.value = true
+    const requestId = beginLoadMoreRequest()
+    const requestKeyData = props.keyData
+    const requestKey = props.keyData.key
 
     try {
-        const {items, cursor, size} = await fetchSetRange(setCursor.value)
+        const {items, cursor, size} = await fetchSetRange(setCursor.value, KEY_DETAIL_PAGE_SIZE, requestKey)
+
+        if (!isLoadMoreRequestCurrent(requestId) || requestKeyData !== props.keyData || requestKey !== props.keyData.key) {
+            return
+        }
+
         setCursor.value = cursor
         setTotalSize.value = size
-        members.value = mergeSetMembers(members.value, items)
+        members.value = mergeSetMembers(
+            members.value,
+            takeUniqueKeyDetailItemsWithinLimit(members.value, items, (item) => String(item?.member ?? ''))
+        )
     } catch (error) {
-        ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadMoreFail'))
+        if (isLoadMoreRequestCurrent(requestId) && requestKeyData === props.keyData && requestKey === props.keyData.key) {
+            ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadMoreFail'))
+        }
     } finally {
-        isLoadingMore.value = false
+        finishLoadMoreRequest(requestId)
     }
 }
 
@@ -554,32 +599,62 @@ const handleLoadMore = async () => {
  * 持续扫描直到 cursor 归零，加载剩余全部 Set 成员。
  */
 const handleLoadAll = async () => {
-    if (!hasMore.value || isLoadingMore.value || isLoadingAll.value) {
+    if (isLoadingAll.value) {
+        invalidateLoadAllRequest()
         return
     }
 
-    isLoadingAll.value = true
+    if (!hasMore.value || isLoadingMore.value) {
+        return
+    }
+
+    const requestId = beginLoadAllRequest()
+    const requestKeyData = props.keyData
+    const requestKey = props.keyData.key
 
     try {
         let cursor = setCursor.value
-        let nextMembers = members.value
-        let latestSize = setTotalSize.value
+        const visitedCursors = new Set()
 
-        // SSCAN 必须按 cursor 逐轮推进，cursor 回到 0 才代表本轮扫描结束。
-        while (cursor !== '0') {
-            const result = await fetchSetRange(cursor)
+        // SSCAN 必须按 cursor 逐轮推进；记录已访问游标，避免异常返回形成无限循环。
+        while (cursor !== '0' && !visitedCursors.has(cursor)) {
+            visitedCursors.add(cursor)
+            const result = await fetchSetRange(cursor, KEY_DETAIL_LOAD_ALL_BATCH_SIZE, requestKey)
+
+            if (
+                !isLoadAllRequestCurrent(requestId) ||
+                requestKeyData !== props.keyData ||
+                requestKey !== props.keyData.key
+            ) {
+                return
+            }
+
+            const appendItems = takeUniqueKeyDetailItemsWithinLimit(
+                members.value,
+                result.items,
+                (item) => String(item?.member ?? '')
+            )
+
             cursor = result.cursor
-            latestSize = result.size
-            nextMembers = mergeSetMembers(nextMembers, result.items)
-        }
+            setCursor.value = cursor
+            setTotalSize.value = result.size
+            members.value = mergeSetMembers(members.value, appendItems)
 
-        setCursor.value = cursor
-        setTotalSize.value = latestSize
-        members.value = nextMembers
+            // SSCAN 允许某一轮返回空数组但游标仍未归零，只有达到展示上限时才主动结束。
+            if (hasReachedKeyDetailLimit(members.value.length, setTotalSize.value, cursor !== '0')) {
+                break
+            }
+        }
     } catch (error) {
-        ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadAllFail'))
+        if (
+            isLoadAllRequestCurrent(requestId) &&
+            requestKeyData === props.keyData &&
+            requestKey === props.keyData.key
+        ) {
+            ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadAllFail'))
+        }
     } finally {
-        isLoadingAll.value = false
+        finishLoadAllRequest(requestId)
     }
 }
 
@@ -598,6 +673,14 @@ const handleDeleteMember = async (member) => {
                 type: 'warning'
             }
         )
+
+        if (isLoadingMore.value) {
+            invalidateLoadMoreRequest()
+        }
+
+        if (isLoadingAll.value) {
+            invalidateLoadAllRequest()
+        }
 
         deletingMember.value = member
         const deleteResult = await runRedisCommand('SREM', [props.keyData.key, member])
@@ -623,14 +706,14 @@ const handleDeleteMember = async (member) => {
 watch(
     () => props.keyData,
     (nextKeyData) => {
+        invalidateLoadMoreRequest()
+        invalidateLoadAllRequest()
         const value = Array.isArray(nextKeyData?.value) ? nextKeyData.value : []
         members.value = value.map(normalizeSetMember)
         setCursor.value = String(nextKeyData?.cursor ?? '0')
         setTotalSize.value = Number(nextKeyData?.size) || members.value.length
         savingMember.value = false
         deletingMember.value = ''
-        isLoadingMore.value = false
-        isLoadingAll.value = false
     },
     {immediate: true}
 )
@@ -644,7 +727,6 @@ watch(
     height: 100%;
     min-height: 0;
     flex-direction: column;
-    background: var(--el-bg-color);
 }
 
 /* 工具栏：左右分布，保持和截图中新增按钮、搜索框的视觉位置一致。 */

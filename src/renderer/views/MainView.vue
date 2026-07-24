@@ -55,7 +55,8 @@ const {searchModeState, exportModeState} = storeToRefs(useBaseStateStore())
 const {sideCollapseState, developerMode} = storeToRefs(useUserSettingsStore())
 
 // 连接页签状态：主内容区根据打开连接数量决定展示 Page 还是 Welcome。
-const {openedConnectionConfigs, activeConnectionConfigId} = storeToRefs(useConnectionConfigsStore())
+const connectionConfigsStore = useConnectionConfigsStore()
+const {openedConnectionConfigs} = storeToRefs(connectionConfigsStore)
 
 // Redis 连接状态监听解绑函数：组件卸载时必须释放 preload 注册的事件监听。
 let removeConnectionStatusListener = null
@@ -69,8 +70,7 @@ onMounted(() => {
     // 根据用户设置恢复开发者模式快捷键状态。
     initDevelopMode()
 
-    // 注册跨组件事件，侧边栏、页签等组件会通过 eventBus 通知主布局。
-    eventBus.on('close-opened-connection', closeOpenedConnection)
+    // 注册跨组件事件，标题栏通过 eventBus 通知主布局切换侧边栏。
     eventBus.on('toggle-side-bar-collapse', toggleSideBarCollapse)
 
     // 首屏和窗口尺寸变化时自动评估侧边栏状态，避免窄窗口下内容区被挤压。
@@ -79,43 +79,13 @@ onMounted(() => {
 })
 
 /**
- * 关闭已打开的连接页签。
- *
- * @param {Object} openedConnectionConfig - 待关闭的连接配置
- */
-const closeOpenedConnection = (openedConnectionConfig) => {
-    const oldConnectionId = openedConnectionConfig.id
-    const index = openedConnectionConfigs.value.findIndex((connect) => connect.id === oldConnectionId)
-
-    if (activeConnectionConfigId.value === oldConnectionId) {
-        // 当前页签被关闭时，优先激活左侧页签，其次激活右侧页签。
-        if (index > 0) {
-            activeConnectionConfigId.value = openedConnectionConfigs.value[index - 1].id
-        } else if (index < openedConnectionConfigs.value.length - 1) {
-            activeConnectionConfigId.value = openedConnectionConfigs.value[index + 1].id
-        } else {
-            activeConnectionConfigId.value = 0
-        }
-    }
-
-    openedConnectionConfigs.value = openedConnectionConfigs.value.filter((connect) => connect.id !== oldConnectionId)
-
-    // 通知主进程断开底层 Redis 连接，避免 Electron 继续持有 socket。
-    window.api.redis.disconnect(oldConnectionId)
-}
-
-/**
  * 同步 Redis 连接状态。
  * 主进程连接状态变化通过 preload 通知 renderer，这里只更新已打开连接列表中的对应对象。
  *
  * @param {{connectionId:number|string, status:string}} data - 连接状态事件数据
  */
 const handleConnectionStatusChanged = (data) => {
-    const connection = openedConnectionConfigs.value.find((connect) => connect.id === data.connectionId)
-
-    if (connection) {
-        connection.status = data.status
-    }
+    connectionConfigsStore.updateConnectionStatus(data)
 }
 
 /**
@@ -179,7 +149,6 @@ onUnmounted(() => {
     removeConnectionStatusListener?.()
 
     // 移除当前组件注册的事件总线监听，避免非 KeepAlive 场景重复注册。
-    eventBus.off('close-opened-connection', closeOpenedConnection)
     eventBus.off('toggle-side-bar-collapse', toggleSideBarCollapse)
     window.removeEventListener('resize', handleResponsiveSideBar)
 })

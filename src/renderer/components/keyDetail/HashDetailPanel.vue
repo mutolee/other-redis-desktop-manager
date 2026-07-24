@@ -94,6 +94,7 @@
             :has-more="hasMore"
             :loading-more="isLoadingMore"
             :loading-all="isLoadingAll"
+            :limit-reached="isLoadLimitReached"
             @load-all="handleLoadAll"
             @load-more="handleLoadMore"
         />
@@ -204,8 +205,15 @@ import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
 import ValueFormatSelect from '../common/ValueFormatSelect.vue'
 import DetailLoadFooter from './common/DetailLoadFooter.vue'
+import {useKeyDetailBatchRequest} from '../../composables/useKeyDetailBatchRequest.js'
 import {useI18n} from '../../i18n/index.js'
 import {DEFAULT_VALUE_FORMAT_TYPE, formatValueForDisplay} from '../../utils/valueFormatters/index.js'
+import {
+    hasReachedKeyDetailLimit,
+    KEY_DETAIL_LOAD_ALL_BATCH_SIZE,
+    KEY_DETAIL_PAGE_SIZE,
+    takeMergeableKeyDetailItemsWithinLimit
+} from '../../utils/keyDetailCollectionUtil.js'
 
 // 国际化文案读取函数：驱动 Hash 表格、弹窗和操作反馈文案。
 const {t} = useI18n()
@@ -228,14 +236,29 @@ const searchKeyword = ref('')
 // 已加载的 Hash 字段：首段来自 keyData.value，后续通过加载更多/加载全部追加。
 const loadedFields = ref([])
 
-// Hash 字段总数：由主进程 HLEN/HKEYS 返回，用于严格判断是否还有下一页。
+// Hash 字段总数：由主进程 HLEN 返回，用于展示当前 Key 的实际字段数量。
 const hashTotalSize = ref(0)
 
-// 加载更多状态：控制底部“加载更多”按钮 loading 和重复点击保护。
-const isLoadingMore = ref(false)
+// Hash 当前 HSCAN 游标：首屏由父级详情数据带入，后续分页持续推进到 0。
+const hashCursor = ref('0')
 
-// 加载全部状态：控制底部“加载全部”按钮 loading 和重复点击保护。
-const isLoadingAll = ref(false)
+// 加载更多请求控制器：切换 Key、停用组件或写入数据后，旧分页结果不得继续回写。
+const {
+    loading: isLoadingMore,
+    beginRequest: beginLoadMoreRequest,
+    isRequestCurrent: isLoadMoreRequestCurrent,
+    finishRequest: finishLoadMoreRequest,
+    invalidateRequest: invalidateLoadMoreRequest
+} = useKeyDetailBatchRequest()
+
+// 加载全部请求控制器：逐批写入列表，并在组件停用、销毁或切换 Key 时让旧循环失效。
+const {
+    loading: isLoadingAll,
+    beginRequest: beginLoadAllRequest,
+    isRequestCurrent: isLoadAllRequestCurrent,
+    finishRequest: finishLoadAllRequest,
+    invalidateRequest: invalidateLoadAllRequest
+} = useKeyDetailBatchRequest()
 
 // 字段编辑弹窗显示状态：新增和编辑共用，具体模式由 fieldEditorMode 控制。
 const fieldEditorVisible = ref(false)
@@ -265,14 +288,16 @@ const savingField = ref(false)
 // 正在删除的 Field：用于给对应行的删除按钮展示 loading。
 const deletingField = ref('')
 
-// 每次 Hash 范围加载数量：和主进程首屏 Hash 加载数量保持一致。
-const HASH_PAGE_SIZE = 100
-
 // 虚拟表格固定行高：和当前行内按钮尺寸、文本行高保持一致，保证滚动定位稳定。
 const ROW_HEIGHT = 41
 
-// 当前是否还有未加载字段：使用已加载数量和总数比较，避免 HSCAN COUNT 不严格导致判断失真。
-const hasMore = computed(() => loadedFields.value.length < hashTotalSize.value)
+// 是否因为详情展示上限停止加载：HSCAN 游标仍未归零时提示用户当前结果被截断。
+const isLoadLimitReached = computed(() => (
+    hasReachedKeyDetailLimit(loadedFields.value.length, hashTotalSize.value, hashCursor.value !== '0')
+))
+
+// 当前是否还有可加载字段：HSCAN 游标未归零且没有达到 renderer 展示上限。
+const hasMore = computed(() => hashCursor.value !== '0' && !isLoadLimitReached.value)
 
 // 当前是否处于编辑已有字段模式：编辑时 Field 不允许改名，只修改 Value。
 const isEditMode = computed(() => fieldEditorMode.value === 'edit')
@@ -379,7 +404,7 @@ const mergeHashFields = (currentItems, nextItems) => {
  * @returns {Promise<unknown>} Redis 原始返回结果
  */
 const runRedisCommand = async (command, args) => {
-    const response = await window.api.redis.executeCommand(props.tabId, command, args)
+    const response = await window.api.redis.executeCommand(props.tabId, command, args, {source: 'key-detail'})
 
     if (!response.success) {
         throw new Error(response.error || t('keyDetailPanels.common.messages.commandFail', {value: command}))
@@ -441,6 +466,15 @@ const handleEditField = (row) => {
 const handleSaveField = async () => {
     if (!canSubmitField.value) {
         return
+    }
+
+    // 写操作会改变扫描结果，提交前停止加载全部，避免游标继续基于旧集合状态推进。
+    if (isLoadingMore.value) {
+        invalidateLoadMoreRequest()
+    }
+
+    if (isLoadingAll.value) {
+        invalidateLoadAllRequest()
     }
 
     savingField.value = true
@@ -540,6 +574,14 @@ const handleDeleteField = async (row) => {
             }
         )
 
+        if (isLoadingMore.value) {
+            invalidateLoadMoreRequest()
+        }
+
+        if (isLoadingAll.value) {
+            invalidateLoadAllRequest()
+        }
+
         deletingField.value = row.field
         const deleteResult = await runRedisCommand('HDEL', [props.keyData.key, row.field])
 
@@ -561,18 +603,19 @@ const handleDeleteField = async (row) => {
 }
 
 /**
- * 按下标范围获取下一段 Hash 字段。
- * @param {number} start 字段起始下标
- * @param {number} stop 字段结束下标
- * @returns {Promise<{items:Array, size:number}>} 后端返回字段和最新总长度
+ * 按 HSCAN 游标获取下一段 Hash 字段。
+ * @param {string} cursor HSCAN 当前游标
+ * @param {number} count 本轮建议扫描数量
+ * @param {string} key 发起请求时固定的 Key，避免详情切换后误读新 Key
+ * @returns {Promise<{items:Array, size:number, cursor:string}>} 后端返回字段、总长度和下一游标
  */
-const fetchHashRange = async (start, stop) => {
+const fetchHashRange = async (cursor, count = KEY_DETAIL_PAGE_SIZE, key = props.keyData.key) => {
     // 通过 preload 暴露的 IPC 调用主进程，让 Redis 命令仍然留在 main 边界内执行。
     const response = await window.api.redis.getHashRange(
         props.tabId,
-        props.keyData.key,
-        start,
-        stop
+        key,
+        cursor,
+        count
     )
 
     if (!response.success) {
@@ -581,57 +624,106 @@ const fetchHashRange = async (start, stop) => {
 
     return {
         items: Array.isArray(response.data?.items) ? response.data.items : [],
-        size: Number(response.data?.size) || 0
+        size: Number(response.data?.size) || 0,
+        cursor: String(response.data?.cursor ?? '0')
     }
 }
 
 /**
  * 追加加载下一段 Hash 字段。
- * 根据当前已加载数量计算下一页范围，成功后追加到 loadedFields。
+ * 使用当前游标扫描下一段，成功后追加到 loadedFields 并保存下一游标。
  */
 const handleLoadMore = async () => {
     if (!hasMore.value || isLoadingMore.value || isLoadingAll.value) {
         return
     }
 
-    isLoadingMore.value = true
+    const requestId = beginLoadMoreRequest()
+    const requestKeyData = props.keyData
+    const requestKey = props.keyData.key
 
     try {
-        const start = loadedFields.value.length
-        const stop = Math.min(start + HASH_PAGE_SIZE - 1, hashTotalSize.value - 1)
-        const {items, size} = await fetchHashRange(start, stop)
+        const {items, size, cursor} = await fetchHashRange(hashCursor.value, KEY_DETAIL_PAGE_SIZE, requestKey)
+
+        if (!isLoadMoreRequestCurrent(requestId) || requestKeyData !== props.keyData || requestKey !== props.keyData.key) {
+            return
+        }
 
         hashTotalSize.value = size
-        loadedFields.value = mergeHashFields(loadedFields.value, items)
+        hashCursor.value = cursor
+        loadedFields.value = mergeHashFields(
+            loadedFields.value,
+            takeMergeableKeyDetailItemsWithinLimit(loadedFields.value, items, (item) => String(item?.field ?? ''))
+        )
     } catch (error) {
-        ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadMoreFail'))
+        if (isLoadMoreRequestCurrent(requestId) && requestKeyData === props.keyData && requestKey === props.keyData.key) {
+            ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadMoreFail'))
+        }
     } finally {
-        isLoadingMore.value = false
+        finishLoadMoreRequest(requestId)
     }
 }
 
 /**
- * 一次性加载剩余全部 Hash 字段。
- * 按当前已加载数量到总数末尾发起一次范围读取。
+ * 持续推进 HSCAN 游标，直到加载完剩余全部 Hash 字段。
+ * 游标去重用于防止 Redis 返回异常游标时形成无限循环。
  */
 const handleLoadAll = async () => {
-    if (!hasMore.value || isLoadingMore.value || isLoadingAll.value) {
+    if (isLoadingAll.value) {
+        invalidateLoadAllRequest()
         return
     }
 
-    isLoadingAll.value = true
+    if (!hasMore.value || isLoadingMore.value) {
+        return
+    }
+
+    const requestId = beginLoadAllRequest()
+    const requestKeyData = props.keyData
+    const requestKey = props.keyData.key
 
     try {
-        const start = loadedFields.value.length
-        const stop = hashTotalSize.value - 1
-        const {items, size} = await fetchHashRange(start, stop)
+        let cursor = hashCursor.value
+        const visitedCursors = new Set()
 
-        hashTotalSize.value = size
-        loadedFields.value = mergeHashFields(loadedFields.value, items)
+        while (cursor !== '0' && !visitedCursors.has(cursor)) {
+            visitedCursors.add(cursor)
+            const result = await fetchHashRange(cursor, KEY_DETAIL_LOAD_ALL_BATCH_SIZE, requestKey)
+
+            if (
+                !isLoadAllRequestCurrent(requestId) ||
+                requestKeyData !== props.keyData ||
+                requestKey !== props.keyData.key
+            ) {
+                return
+            }
+
+            const appendItems = takeMergeableKeyDetailItemsWithinLimit(
+                loadedFields.value,
+                result.items,
+                (item) => String(item?.field ?? '')
+            )
+
+            cursor = result.cursor
+            hashCursor.value = cursor
+            hashTotalSize.value = result.size
+            loadedFields.value = mergeHashFields(loadedFields.value, appendItems)
+
+            // HSCAN 允许某一轮返回空数组但游标仍未归零，只有达到展示上限时才主动结束。
+            if (hasReachedKeyDetailLimit(loadedFields.value.length, hashTotalSize.value, cursor !== '0')) {
+                break
+            }
+        }
     } catch (error) {
-        ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadAllFail'))
+        if (
+            isLoadAllRequestCurrent(requestId) &&
+            requestKeyData === props.keyData &&
+            requestKey === props.keyData.key
+        ) {
+            ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadAllFail'))
+        }
     } finally {
-        isLoadingAll.value = false
+        finishLoadAllRequest(requestId)
     }
 }
 
@@ -639,12 +731,13 @@ const handleLoadAll = async () => {
 watch(
     () => props.keyData,
     (nextKeyData) => {
+        invalidateLoadMoreRequest()
+        invalidateLoadAllRequest()
         loadedFields.value = Array.isArray(nextKeyData?.value)
             ? [...nextKeyData.value]
             : Object.entries(nextKeyData?.value || {}).map(([field, value]) => ({field, value}))
         hashTotalSize.value = Number(nextKeyData?.size) || loadedFields.value.length
-        isLoadingMore.value = false
-        isLoadingAll.value = false
+        hashCursor.value = String(nextKeyData?.cursor ?? '0')
     },
     {immediate: true}
 )
@@ -658,7 +751,6 @@ watch(
     height: 100%;
     min-height: 0;
     flex-direction: column;
-    background: var(--el-bg-color);
 }
 
 /* 工具栏：左右分布，和 List/ZSet 面板保持一致的新增/搜索入口位置。 */

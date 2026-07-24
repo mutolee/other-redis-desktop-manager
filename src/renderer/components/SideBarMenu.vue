@@ -41,9 +41,17 @@
                     <el-menu @select="(index) => eventBus.emit('click-connection', index)" :collapse="sideCollapseState" :collapse-transition="false" :default-active="String(activeConnectionConfigId)"
                              :default-openeds="defaultOpened"
                              :unique-opened="true">
-                        <el-sub-menu v-for="sub in connectionConfigsTree" :key="sub.index" :index="sub.index">
+                        <el-sub-menu
+                            v-for="sub in connectionConfigsTree"
+                            :key="sub.index"
+                            :index="sub.index"
+                            :class="{'is-context-menu-active': isContextMenuTarget(sub, 'group')}"
+                        >
                             <template #title>
-                                <div class="menu-sub-panel">
+                                <div
+                                    class="menu-sub-panel"
+                                    @contextmenu.prevent.stop="handleContextMenu($event, sub, 'group')"
+                                >
                                     <el-checkbox
                                         v-if="showExportCheckbox"
                                         :model-value="isGroupSelected(selectedIds,sub)"
@@ -59,14 +67,23 @@
                                         <el-icon
                                             v-show="showMoreDropdown"
                                             class="menu-more-icon"
-                                            @click.stop="(e) => eventBus.emit('click-context-menu', {event: e, connection: sub, type: 'group'})">
+                                            @click.stop="handleActionMenu($event, sub, 'group')">
                                             <More size="16" fill="#aaa"/>
                                         </el-icon>
                                     </template>
                                 </div>
                             </template>
                             <el-scrollbar :maxHeight="sideCollapseState ? '500px' : undefined">
-                                <el-menu-item :class="{'no-click': exportModeState}" v-for="item in sub.children" :key="item.id" :index="String(item.id)">
+                                <el-menu-item
+                                    v-for="item in sub.children"
+                                    :key="item.id"
+                                    :index="String(item.id)"
+                                    :class="{
+                                        'no-click': exportModeState,
+                                        'is-context-menu-active': isContextMenuTarget(item, 'connection')
+                                    }"
+                                    @contextmenu.prevent.stop="handleContextMenu($event, item, 'connection')"
+                                >
                                     <template #title>
                                         <div class="menu-item-panel">
                                             <el-checkbox
@@ -82,7 +99,7 @@
                                             <el-icon
                                                 v-if="showMoreDropdown"
                                                 class="menu-more-icon"
-                                                @click.stop="(e) => eventBus.emit('click-context-menu',{event: e, connection: item, type: 'connection'})">
+                                                @click.stop="handleActionMenu($event, item, 'connection')">
                                                 <More theme="outline" size="16" fill="#aaa"/>
                                             </el-icon>
                                         </div>
@@ -113,11 +130,27 @@ import SideBarMenuEmpty from './SideBarMenuEmpty.vue'
 // 国际化文案读取函数：驱动侧边栏连接列表加载态和导出操作文案。
 const {t} = useI18n()
 
-// 组件入参：接收侧边栏外层传入的加载状态，用来区分“连接还在加载中”和“连接列表真实为空”。
+// 组件入参：接收加载状态和共享菜单上下文，用于加载反馈及右键目标悬浮态展示。
 const props = defineProps({
     isLoading: {
         type: Boolean,
         default: false
+    },
+    contextMenuVisible: {
+        type: Boolean,
+        default: false
+    },
+    contextMenuType: {
+        type: String,
+        default: 'connection'
+    },
+    contextMenuItem: {
+        type: Object,
+        default: null
+    },
+    contextMenuSource: {
+        type: String,
+        default: ''
     }
 })
 
@@ -141,6 +174,62 @@ const selectionToggleButtonType = computed(() => isAllConnectionSelected.value ?
 const showLoadingState = computed(() => props.isLoading && connectionConfigs.value.length === 0)
 // 空态占位：只有加载结束后依然没有任何连接配置时，才展示创建/导入按钮。
 const showEmptyState = computed(() => !props.isLoading && connectionConfigs.value.length === 0)
+
+/**
+ * 判断列表项是否为当前右键菜单目标。
+ * 仅右键入口保留悬浮背景，更多按钮打开菜单时不额外改变列表样式。
+ *
+ * @param {Object} item - 分组或连接数据。
+ * @param {'connection'|'group'} type - 列表项类型。
+ * @returns {boolean} 是否显示临时悬浮态。
+ */
+const isContextMenuTarget = (item, type) => {
+    if (!props.contextMenuVisible || props.contextMenuSource !== 'context' || props.contextMenuType !== type) {
+        return false
+    }
+
+    if (type === 'group') {
+        return props.contextMenuItem?.group_name === item.group_name
+    }
+
+    return String(props.contextMenuItem?.id) === String(item.id)
+}
+
+/**
+ * 从列表项右键打开共享操作菜单；导出模式下不响应右键操作。
+ *
+ * @param {MouseEvent} event - 右键事件。
+ * @param {Object} item - 分组或连接数据。
+ * @param {'connection'|'group'} type - 菜单类型。
+ */
+const handleContextMenu = (event, item, type) => {
+    if (exportModeState.value) {
+        return
+    }
+
+    eventBus.emit('click-context-menu', {
+        event,
+        connection: item,
+        type,
+        source: 'context'
+    })
+}
+
+/**
+ * 从列表项右侧更多按钮打开共享操作菜单。
+ *
+ * @param {MouseEvent} event - 更多按钮点击事件。
+ * @param {Object} item - 分组或连接数据。
+ * @param {'connection'|'group'} type - 菜单类型。
+ */
+const handleActionMenu = (event, item, type) => {
+    eventBus.emit('click-context-menu', {
+        event,
+        connection: item,
+        type,
+        source: 'action'
+    })
+}
 
 const handleToggleConnectionSelection = () => {
     if (isAllConnectionSelected.value) {
@@ -271,6 +360,13 @@ const handleToggleConnectionSelection = () => {
 
 .menu-panel :deep(.el-menu-item) {
     padding-right: 8px;
+}
+
+/* 右键菜单打开期间保留目标项的悬浮背景，菜单关闭后由状态清理自动恢复。 */
+.menu-panel :deep(.el-sub-menu.is-context-menu-active > .el-sub-menu__title),
+.menu-panel :deep(.el-menu-item.is-context-menu-active) {
+    color: var(--el-text-color-secondary);
+    background-color: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
 }
 
 .menu-sub-panel, .menu-item-panel {

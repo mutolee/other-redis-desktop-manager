@@ -9,6 +9,7 @@
                 v-model="activeConnectionConfigId"
                 @tab-click="tabClick"
                 @tab-remove="tabClose"
+                @contextmenu.prevent.stop="handleTabsContextMenu"
                 class="el-tabs-override">
                 <el-tab-pane
                     v-for="tab in openedConnectionConfigs"
@@ -16,7 +17,10 @@
                     :name="tab.id"
                     :key="tab.id">
                     <template #label>
-                        <div class="nav-label">
+                        <div
+                            class="nav-label"
+                            :class="{'is-context-menu-active': isContextMenuTarget(tab.id)}"
+                        >
                             <el-icon size="18">
                                 <Loading class="loading-icon" v-if="tab.status === 'reconnecting' || tab.status === 'connecting'"/>
                                 <LinkInterrupt v-if="tab.status === 'disconnected' || tab.status === 'error'"/>
@@ -29,55 +33,84 @@
             </el-tabs>
         </div>
         <div class="navbar-operation">
-            <el-dropdown popper-class="page-navbar-dropdown" @command="dropdownEvent">
-                <span>
-                    <el-icon class="navbar-operation-icon"><Down/></el-icon>
-                </span>
-                <template #dropdown>
-                    <el-dropdown-menu>
-                        <el-dropdown-item command="closeOther">
-                            <el-icon>
-                                <CloseSmall/>
-                            </el-icon>
-                            <span class="dropdown-item-text">{{ t('pageNavbar.closeOther') }}</span>
-                        </el-dropdown-item>
-                        <el-dropdown-item command="closeLeft">
-                            <el-icon>
-                                <ToLeft/>
-                            </el-icon>
-                            <span class="dropdown-item-text">{{ t('pageNavbar.closeLeft') }}</span>
-                        </el-dropdown-item>
-                        <el-dropdown-item command="closeRight">
-                            <el-icon>
-                                <ToRight/>
-                            </el-icon>
-                            <span class="dropdown-item-text">{{ t('pageNavbar.closeRight') }}</span>
-                        </el-dropdown-item>
-                        <el-dropdown-item command="closeAll">
-                            <el-icon>
-                                <CircleClose/>
-                            </el-icon>
-                            <span class="dropdown-item-text">{{ t('pageNavbar.closeAll') }}</span>
-                        </el-dropdown-item>
-                    </el-dropdown-menu>
-                </template>
-            </el-dropdown>
+            <button
+                ref="operationTriggerRef"
+                class="navbar-operation-trigger"
+                type="button"
+                @click.stop="handleOperationMenuClick"
+            >
+                <el-icon class="navbar-operation-icon"><Down/></el-icon>
+            </button>
         </div>
+
+        <!-- 共用页签关闭菜单：操作按钮以激活页签为目标，右键入口以被右击页签为目标。 -->
+        <PageNavbarCloseMenu
+            v-model:visible="closeMenuVisible"
+            :virtual-ref="closeMenuVirtualRef"
+            :placement="closeMenuPlacement"
+            :can-close-other="canCloseOther"
+            :can-close-left="canCloseLeft"
+            :can-close-right="canCloseRight"
+            @command="handleCloseMenuCommand"
+        />
     </div>
 </template>
 
 <script setup>
-import {CloseOne as CircleClose, CloseSmall, Down, LinkInterrupt, LinkThree, Loading, ToLeft, ToRight} from '@icon-park/vue-next'
+import {Down, LinkInterrupt, LinkThree, Loading} from '@icon-park/vue-next'
 import {storeToRefs} from 'pinia'
-import {useI18n} from '../i18n/index.js'
-import {eventBus} from '../utils/eventBus.js'
+import {computed, nextTick, ref, watch} from 'vue'
 import {useConnectionConfigsStore} from '../stores/modules/connectionConfigsStore.js'
+import PageNavbarCloseMenu from './dialog/PageNavbarCloseMenu.vue'
 
-// 国际化文案读取函数：驱动页签批量关闭菜单文案。
-const {t} = useI18n()
+// 连接配置 store：读取活动连接 ID 和已打开连接列表，并统一执行页签激活与关闭动作。
+const connectionConfigsStore = useConnectionConfigsStore()
+const {activeConnectionConfigId, openedConnectionConfigs} = storeToRefs(connectionConfigsStore)
 
-// 连接配置 store：读取活动连接 ID 和已打开连接列表，驱动页签选中和关闭逻辑。
-const {activeConnectionConfigId, openedConnectionConfigs} = storeToRefs(useConnectionConfigsStore())
+// 共用关闭菜单状态：记录触发入口、定位对象和作为关闭边界的连接 ID。
+const closeMenuVisible = ref(false)
+const closeMenuVirtualRef = ref(null)
+const closeMenuConnectionId = ref(null)
+const closeMenuPlacement = ref('bottom-start')
+const closeMenuSource = ref('')
+const operationTriggerRef = ref(null)
+
+// 菜单目标页签索引：关闭左侧、右侧和其他操作都以该页签为基准。
+const closeMenuConnectionIndex = computed(() => openedConnectionConfigs.value.findIndex(
+    connection => String(connection.id) === String(closeMenuConnectionId.value)
+))
+
+// 目标页签两侧可关闭状态：没有对应页签时禁用菜单项。
+const canCloseOther = computed(() => (
+    closeMenuConnectionIndex.value >= 0 && openedConnectionConfigs.value.length > 1
+))
+const canCloseLeft = computed(() => closeMenuConnectionIndex.value > 0)
+const canCloseRight = computed(() => (
+    closeMenuConnectionIndex.value >= 0
+    && closeMenuConnectionIndex.value < openedConnectionConfigs.value.length - 1
+))
+
+/**
+ * 判断连接页签是否为当前右键菜单目标。
+ * 只有页签右键入口需要保留悬浮样式，右侧箭头打开菜单时不改变页签外观。
+ *
+ * @param {string|number} connectionId - 连接页签 ID。
+ * @returns {boolean} 是否应用右键悬浮保留样式。
+ */
+function isContextMenuTarget(connectionId) {
+    return closeMenuVisible.value
+        && closeMenuSource.value === 'context'
+        && String(connectionId) === String(closeMenuConnectionId.value)
+}
+
+// 菜单收起后清理触发上下文，避免下一次打开前残留旧页签和定位对象。
+watch(closeMenuVisible, (visible) => {
+    if (!visible) {
+        closeMenuConnectionId.value = null
+        closeMenuVirtualRef.value = null
+        closeMenuSource.value = ''
+    }
+})
 
 /**
  * tab 点击事件
@@ -86,8 +119,8 @@ const {activeConnectionConfigId, openedConnectionConfigs} = storeToRefs(useConne
 function tabClick(tab) {
     // Element Plus 的 tab-click 事件传递的是 TabsPaneContext 对象
     // 应该使用 tab.paneName 来获取被点击的 tab 的 name 值
-    if (tab.paneName !== activeConnectionConfigId.value) {
-        activeConnectionConfigId.value = tab.paneName
+    if (String(tab.paneName) !== String(activeConnectionConfigId.value)) {
+        connectionConfigsStore.activateConnection(tab.paneName)
     }
 }
 
@@ -96,11 +129,7 @@ function tabClick(tab) {
  * @param tabId 被关闭的 tab 的 id
  */
 function tabClose(tabId) {
-    // 删除打开的 openedConnectionConfigs 中对应的连接配置
-    const deletedConnection = openedConnectionConfigs.value.find(connect => connect.id === tabId)
-    if (deletedConnection) {
-        eventBus.emit('close-opened-connection', deletedConnection)
-    }
+    connectionConfigsStore.closeConnection(tabId)
 }
 
 /**
@@ -108,33 +137,137 @@ function tabClose(tabId) {
  * @param {Array} connections 需要关闭的连接配置列表
  */
 function closeConnections(connections) {
-    connections.forEach((connect) => {
-        eventBus.emit('close-opened-connection', connect)
+    connectionConfigsStore.closeConnections(connections.map(connection => connection.id))
+}
+
+/**
+ * 执行以指定连接页签为基准的批量关闭命令。
+ *
+ * @param {string} command - 关闭命令。
+ * @param {string|number} targetConnectionId - 作为左右边界的连接 ID。
+ */
+function executeCloseCommand(command, targetConnectionId) {
+    const targetIndex = openedConnectionConfigs.value.findIndex(
+        connection => String(connection.id) === String(targetConnectionId)
+    )
+
+    if (targetIndex < 0) {
+        return
+    }
+
+    switch (command) {
+        case 'closeOther':
+            closeConnections(openedConnectionConfigs.value.filter(
+                connection => String(connection.id) !== String(targetConnectionId)
+            ))
+            break
+        case 'closeLeft':
+            closeConnections(openedConnectionConfigs.value.slice(0, targetIndex))
+            break
+        case 'closeRight':
+            closeConnections(openedConnectionConfigs.value.slice(targetIndex + 1))
+            break
+        case 'closeAll':
+            closeConnections(openedConnectionConfigs.value)
+            break
+    }
+}
+
+/**
+ * 根据鼠标位置创建 Element Plus Popover 的虚拟触发对象。
+ *
+ * @param {MouseEvent} event - 页签区域右键事件。
+ * @returns {{getBoundingClientRect: Function}} 虚拟触发定位对象。
+ */
+function createContextMenuVirtualRef(event) {
+    const {clientX, clientY} = event
+
+    return {
+        getBoundingClientRect: () => ({
+            width: 0,
+            height: 0,
+            top: clientY,
+            right: clientX,
+            bottom: clientY,
+            left: clientX,
+            x: clientX,
+            y: clientY
+        })
+    }
+}
+
+/**
+ * 使用指定入口打开共用关闭菜单。
+ * 已显示的菜单需要先收起并等待 DOM 更新，确保 Popover 能重新计算目标位置。
+ *
+ * @param {Object} options - 菜单目标和定位参数。
+ * @param {string|number} options.connectionId - 作为关闭边界的连接 ID。
+ * @param {Object|HTMLElement} options.virtualRef - Popover 定位对象。
+ * @param {string} options.placement - 菜单弹出方向。
+ * @param {'operation'|'context'} options.source - 菜单触发入口。
+ */
+async function openCloseMenu({connectionId, virtualRef, placement, source}) {
+    closeMenuVisible.value = false
+    await nextTick()
+
+    closeMenuConnectionId.value = connectionId
+    closeMenuVirtualRef.value = virtualRef
+    closeMenuPlacement.value = placement
+    closeMenuSource.value = source
+    closeMenuVisible.value = true
+}
+
+/**
+ * 点击右侧操作按钮时，以当前激活页签为目标打开共用关闭菜单。
+ */
+function handleOperationMenuClick() {
+    if (closeMenuVisible.value && closeMenuSource.value === 'operation') {
+        closeMenuVisible.value = false
+        return
+    }
+
+    openCloseMenu({
+        connectionId: activeConnectionConfigId.value,
+        virtualRef: operationTriggerRef.value,
+        placement: 'bottom-end',
+        source: 'operation'
     })
 }
 
 /**
- * dropdown 点击事件
- * @param command
+ * 打开连接页签右键菜单。
+ * 通过实际 tab DOM 顺序定位连接，确保状态图标、标题、关闭按钮区域都能触发。
+ *
+ * @param {MouseEvent} event - 页签区域右键事件。
  */
-function dropdownEvent(command) {
-    switch (command) {
-        case 'closeOther':
-            // 查找openedConnectionConfigs中除了activeConnectionConfigId之外的连接配置
-            closeConnections(openedConnectionConfigs.value.filter(connect => connect.id !== activeConnectionConfigId.value))
-            break;
-        case 'closeLeft':
-            // 查找openedConnectionConfigs中activeConnectionConfigId索引以左的连接配置
-            closeConnections(openedConnectionConfigs.value.slice(0, openedConnectionConfigs.value.findIndex(connect => connect.id === activeConnectionConfigId.value)))
-            break;
-        case 'closeRight':
-            // 查找openedConnectionConfigs中activeConnectionConfigId索引以右的连接配置
-            closeConnections(openedConnectionConfigs.value.slice(openedConnectionConfigs.value.findIndex(connect => connect.id === activeConnectionConfigId.value) + 1))
-            break;
-        case 'closeAll':
-            closeConnections(openedConnectionConfigs.value)
-            break;
+function handleTabsContextMenu(event) {
+    const tabElement = event.target.closest('.el-tabs__item')
+    if (!tabElement) {
+        return
     }
+
+    const tabElements = Array.from(tabElement.parentElement?.querySelectorAll('.el-tabs__item') || [])
+    const tabIndex = tabElements.indexOf(tabElement)
+    const targetConnection = openedConnectionConfigs.value[tabIndex]
+    if (!targetConnection) {
+        return
+    }
+
+    openCloseMenu({
+        connectionId: targetConnection.id,
+        virtualRef: createContextMenuVirtualRef(event),
+        placement: 'bottom-start',
+        source: 'context'
+    })
+}
+
+/**
+ * 执行右键菜单命令。
+ *
+ * @param {string} command - 当前选择的关闭命令。
+ */
+function handleCloseMenuCommand(command) {
+    executeCloseCommand(command, closeMenuConnectionId.value)
 }
 </script>
 
@@ -236,6 +369,12 @@ function dropdownEvent(command) {
     background-color: color-mix(in srgb, var(--el-color-primary) 20%, transparent);
 }
 
+/* 被右击页签临时保留悬浮样式；菜单关闭后目标状态清空并自动恢复。 */
+:deep(.el-tabs-override) .el-tabs__item:has(.nav-label.is-context-menu-active) {
+    color: var(--el-text-color-secondary);
+    background-color: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
+}
+
 .nav-label {
     display: flex;
     align-items: center;
@@ -275,6 +414,20 @@ function dropdownEvent(command) {
     background-color: color-mix(in srgb, var(--el-color-primary) 8%, transparent);
 }
 
+.navbar-operation-trigger {
+    display: flex;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    outline: none;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+}
+
 .navbar-operation .navbar-operation-icon {
     width: 40px;
     height: 40px;
@@ -285,47 +438,4 @@ function dropdownEvent(command) {
     transform: translateY(1px);
 }
 
-/* 页签关闭菜单：下拉层会挂载到 body，需要使用全局选择器对齐 icon-park 图标和文本。 */
-:global(.page-navbar-dropdown .el-dropdown-menu) {
-    min-width: 158px;
-    padding: 4px 0;
-    background: var(--el-bg-color-overlay);
-}
-
-:global(.page-navbar-dropdown .el-dropdown-menu__item) {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    height: 36px;
-    line-height: 36px;
-    padding: 0 16px;
-    border-radius: 0;
-    color: var(--el-text-color-regular);
-}
-
-:global(.page-navbar-dropdown .el-dropdown-menu__item:hover) {
-    color: var(--el-color-primary);
-}
-
-:global(.page-navbar-dropdown .el-dropdown-menu__item .el-icon) {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    line-height: 0;
-    margin-right: 6px;
-    flex-shrink: 0;
-}
-
-/* icon-park 的 SVG 视觉中心略偏上，这里只在页签菜单里轻微下移图形本身。 */
-:global(.page-navbar-dropdown .el-dropdown-menu__item .el-icon .i-icon) {
-    display: inline-flex;
-    transform: translateY(1px);
-    font-size: 18px;
-}
-
-:global(.page-navbar-dropdown .dropdown-item-text) {
-    line-height: 20px;
-}
 </style>

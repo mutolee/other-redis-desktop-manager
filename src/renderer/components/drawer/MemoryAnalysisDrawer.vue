@@ -26,7 +26,7 @@
         </template>
 
         <!-- 抽屉主体：顶部摘要固定，列表区域使用虚拟列表撑满剩余高度。 -->
-        <div class="memory-analysis-drawer" v-loading="loading">
+        <div class="memory-analysis-drawer">
             <div class="analysis-toolbar">
                 <div class="connection-info">
                     <span class="connection-name">{{ connectionName || t('memoryAnalysis.currentConnection') }}</span>
@@ -49,8 +49,8 @@
                 </div>
                 <div class="summary-item">
                     <span>{{ t('memoryAnalysis.summary.status') }}</span>
-                    <strong :class="summary.hasMore ? 'is-warning' : 'is-success'">
-                        {{ summary.hasMore ? t('memoryAnalysis.summary.reachedLimit') : t('memoryAnalysis.summary.completed') }}
+                    <strong :class="analysisStatus.className">
+                        {{ analysisStatus.text }}
                     </strong>
                 </div>
             </div>
@@ -61,7 +61,7 @@
                 <span>{{ t('memoryAnalysis.table.memory') }}</span>
             </div>
 
-            <div class="list-body">
+            <div class="list-body" v-loading="loading && rows.length === 0">
                 <el-empty v-if="!loading && rows.length === 0" :description="t('memoryAnalysis.empty')"/>
 
                 <AutoResizer v-else class="analysis-auto-resizer">
@@ -99,7 +99,7 @@
 </template>
 
 <script setup>
-import {computed, ref, watch} from 'vue'
+import {computed, onDeactivated, onUnmounted, ref, watch} from 'vue'
 import {ElAutoResizer as AutoResizer, ElMessage, FixedSizeList} from 'element-plus'
 import {Memory, Refresh} from '@icon-park/vue-next'
 import {useI18n} from '../../i18n/index.js'
@@ -147,11 +147,12 @@ const drawerVisible = computed({
     set: (value) => emit('update:visible', value)
 })
 
-// 分析加载状态：控制全局 loading 和刷新按钮 loading。
-const loading = ref(false)
-
 // 抽屉动画完成状态：避免打开动画期间 watch 和 opened 同时触发两次扫描。
 const drawerOpened = ref(false)
+
+// 分析状态和请求序号：关闭、刷新或切换范围时递增序号，使旧批次停止回写和继续拉取。
+const loading = ref(false)
+let analysisRequestId = 0
 
 // 内存排行原始结果：由 main 进程返回，已经按内存占用从大到小排序。
 const rows = ref([])
@@ -162,6 +163,57 @@ const summary = ref({
     totalMemory: 0,
     hasMore: false
 })
+
+// 分析失败状态：失败后可保留已返回批次，但不能把部分结果标记为已完成。
+const analysisFailed = ref(false)
+
+// 分析状态文案和颜色：区分扫描中、失败、达到上限和完整结束。
+const analysisStatus = computed(() => {
+    if (loading.value) {
+        return {
+            className: 'is-loading',
+            text: t('memoryAnalysis.summary.scanning')
+        }
+    }
+
+    if (analysisFailed.value) {
+        return {
+            className: 'is-danger',
+            text: t('memoryAnalysis.summary.failed')
+        }
+    }
+
+    return summary.value.hasMore
+        ? {className: 'is-warning', text: t('memoryAnalysis.summary.reachedLimit')}
+        : {className: 'is-success', text: t('memoryAnalysis.summary.completed')}
+})
+
+/**
+ * 将两个按内存降序排列的数组线性合并，避免每批都对全部结果重新排序。
+ *
+ * @param {Array} currentRows - 已展示的有序结果。
+ * @param {Array} batchRows - main 返回的当前批次有序结果。
+ * @returns {Array} 合并后的降序结果。
+ */
+const mergeMemoryRows = (currentRows, batchRows) => {
+    const mergedRows = []
+    let currentIndex = 0
+    let batchIndex = 0
+
+    while (currentIndex < currentRows.length && batchIndex < batchRows.length) {
+        if (currentRows[currentIndex].memoryUsage >= batchRows[batchIndex].memoryUsage) {
+            mergedRows.push(currentRows[currentIndex])
+            currentIndex += 1
+        } else {
+            mergedRows.push(batchRows[batchIndex])
+            batchIndex += 1
+        }
+    }
+
+    return mergedRows
+        .concat(currentRows.slice(currentIndex))
+        .concat(batchRows.slice(batchIndex))
+}
 
 /**
  * 格式化整数。
@@ -196,37 +248,79 @@ const formatBytes = (bytes) => {
 }
 
 /**
- * 拉取当前 DB 的 Key 内存排行。
- * 主进程负责 SCAN 和 MEMORY USAGE pipeline，前端只负责展示结果。
+ * 分批拉取当前 DB 的 Key 内存排行。
+ * renderer 持有 cursor 并逐批合并展示；main 每次只执行一轮 SCAN 和对应的 MEMORY USAGE pipeline。
  */
 const fetchAnalysis = async () => {
-    if (!props.connectionId || loading.value) {
+    if (!props.connectionId) {
         return
     }
 
+    const requestId = ++analysisRequestId
     loading.value = true
+    rows.value = []
+    summary.value = {
+        scannedCount: 0,
+        totalMemory: 0,
+        hasMore: false
+    }
+    analysisFailed.value = false
 
     try {
-        const response = await window.api.redis.analyzeKeyMemory(props.connectionId, {
-            maxKeys: props.maxKeys,
-            matchPattern: props.matchPattern
-        })
+        const seenKeys = new Set()
+        let cursor = '0'
+        let totalMemory = 0
 
-        if (!response.success) {
-            ElMessage.error(`${t('memoryAnalysis.messages.loadFail')}: ${response.error || t('common.unknownError')}`)
-            return
-        }
+        do {
+            const remaining = props.maxKeys - seenKeys.size
+            if (remaining <= 0 || requestId !== analysisRequestId || !props.visible) {
+                break
+            }
 
-        rows.value = response.data?.keys || []
-        summary.value = {
-            scannedCount: response.data?.scannedCount || 0,
-            totalMemory: response.data?.totalMemory || 0,
-            hasMore: Boolean(response.data?.hasMore)
-        }
+            const response = await window.api.redis.analyzeKeyMemory(props.connectionId, {
+                cursor,
+                matchPattern: props.matchPattern
+            })
+
+            if (requestId !== analysisRequestId || !props.visible) {
+                return
+            }
+
+            if (!response.success) {
+                analysisFailed.value = true
+                ElMessage.error(`${t('memoryAnalysis.messages.loadFail')}: ${response.error || t('common.unknownError')}`)
+                return
+            }
+
+            const batchRemaining = props.maxKeys - seenKeys.size
+            const unseenBatchRows = (response.data?.keys || []).filter((row) => {
+                if (!row?.key || seenKeys.has(row.key)) {
+                    return false
+                }
+
+                return true
+            })
+            const batchRows = unseenBatchRows.slice(0, batchRemaining)
+            batchRows.forEach((row) => seenKeys.add(row.key))
+            cursor = String(response.data?.cursor ?? '0')
+            totalMemory += batchRows.reduce((total, row) => total + (Number(row.memoryUsage) || 0), 0)
+            rows.value = mergeMemoryRows(rows.value, batchRows)
+            summary.value = {
+                scannedCount: seenKeys.size,
+                totalMemory,
+                hasMore: seenKeys.size >= props.maxKeys
+                    && (Boolean(response.data?.hasMore) || unseenBatchRows.length > batchRemaining)
+            }
+        } while (cursor !== '0' && seenKeys.size < props.maxKeys)
     } catch (error) {
-        ElMessage.error(`${t('memoryAnalysis.messages.loadFail')}: ${error.message || error}`)
+        if (requestId === analysisRequestId && props.visible) {
+            analysisFailed.value = true
+            ElMessage.error(`${t('memoryAnalysis.messages.loadFail')}: ${error.message || error}`)
+        }
     } finally {
-        loading.value = false
+        if (requestId === analysisRequestId) {
+            loading.value = false
+        }
     }
 }
 
@@ -244,6 +338,13 @@ const handleDrawerOpened = () => {
  */
 const handleDrawerClosed = () => {
     drawerOpened.value = false
+    rows.value = []
+    summary.value = {
+        scannedCount: 0,
+        totalMemory: 0,
+        hasMore: false
+    }
+    analysisFailed.value = false
 }
 
 // 抽屉已打开时切换分析范围，需要立即刷新结果，支持从不同目录右键连续触发内存分析。
@@ -252,6 +353,27 @@ watch(
     () => {
         if (drawerOpened.value) {
             fetchAnalysis()
+        }
+    }
+)
+
+/**
+ * 让当前 renderer 拉取循环失效，旧批次返回后不得继续请求或回写。
+ */
+const invalidateAnalysisRequest = () => {
+    analysisRequestId += 1
+    loading.value = false
+}
+
+onDeactivated(invalidateAnalysisRequest)
+onUnmounted(invalidateAnalysisRequest)
+
+// Drawer 开始关闭时立即取消任务，不等待关闭动画结束。
+watch(
+    () => props.visible,
+    (visible) => {
+        if (!visible) {
+            invalidateAnalysisRequest()
         }
     }
 )
@@ -363,6 +485,14 @@ watch(
 
 .summary-item strong.is-warning {
     color: var(--el-color-warning);
+}
+
+.summary-item strong.is-loading {
+    color: var(--el-color-primary);
+}
+
+.summary-item strong.is-danger {
+    color: var(--el-color-danger);
 }
 
 /* 列表表头：固定高度，右侧内存列靠右展示。 */

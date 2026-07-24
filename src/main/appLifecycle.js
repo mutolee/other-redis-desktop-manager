@@ -13,11 +13,11 @@ import {createSplashWindow} from './windows/splashWindow.js'
 const {app, globalShortcut} = electron
 const log = createLogger('main')
 
-// Redis 连接退出清理状态：避免 before-quit 被多次触发时重复关闭连接。
-let isRedisCleanupRunning = false
-let isRedisCleanupCompleted = false
+// 应用资源退出清理状态：避免 before-quit 被多次触发时重复关闭连接或写入历史文件。
+let isResourceCleanupRunning = false
+let isResourceCleanupCompleted = false
 let isAppQuitting = false
-const REDIS_CLEANUP_TIMEOUT_MS = 3000
+const RESOURCE_CLEANUP_TIMEOUT_MS = 3000
 
 /**
  * 聚焦当前已有主窗口。
@@ -57,19 +57,19 @@ const activateMainWindow = () => {
 }
 
 /**
- * 给异步清理增加兜底超时，避免 quit 被长时间 Redis socket 关闭卡住。
+ * 给异步清理增加兜底超时，避免 quit 被 Redis socket 或文件写入长时间卡住。
  *
- * @param {Promise<void>} cleanupPromise - Redis 连接清理 Promise
+ * @param {Promise<void>} cleanupPromise - 应用资源清理 Promise
  * @returns {Promise<void>} 带超时保护的清理 Promise
  */
-const runRedisCleanupWithTimeout = (cleanupPromise) => {
+const runResourceCleanupWithTimeout = (cleanupPromise) => {
     return Promise.race([
         cleanupPromise,
         new Promise((resolve) => {
             setTimeout(() => {
-                log.warn(`Redis 连接清理超过 ${REDIS_CLEANUP_TIMEOUT_MS}ms，继续退出应用`)
+                log.warn(`应用资源清理超过 ${RESOURCE_CLEANUP_TIMEOUT_MS}ms，继续退出应用`)
                 resolve()
-            }, REDIS_CLEANUP_TIMEOUT_MS)
+            }, RESOURCE_CLEANUP_TIMEOUT_MS)
         })
     ])
 }
@@ -116,39 +116,44 @@ const initializeApp = async () => {
 }
 
 /**
- * 关闭 Redis 长连接后继续退出应用。
- * before-quit 支持 preventDefault，这里用一次拦截保证 socket 有机会释放。
+ * 关闭 Redis 长连接并完成命令记录落盘后继续退出应用。
+ * before-quit 支持 preventDefault，这里用一次拦截保证 socket 和文件队列有机会完成清理。
  *
  * @param {Electron.Event} event - Electron before-quit 事件
  */
-const cleanupRedisConnectionsBeforeQuit = (event) => {
+const cleanupAppResourcesBeforeQuit = (event) => {
     log.info('应用准备退出')
     isAppQuitting = true
 
-    if (isRedisCleanupCompleted) {
+    if (isResourceCleanupCompleted) {
         return
     }
 
     event.preventDefault()
 
-    if (isRedisCleanupRunning) {
-        log.info('Redis 连接清理正在进行，等待清理完成后继续退出')
+    if (isResourceCleanupRunning) {
+        log.info('应用资源清理正在进行，等待清理完成后继续退出')
         return
     }
 
-    isRedisCleanupRunning = true
+    isResourceCleanupRunning = true
 
-    runRedisCleanupWithTimeout(redisConnectionManager.closeAllRedisConnections())
+    const cleanupPromise = Promise.all([
+        redisConnectionManager.closeAllRedisConnections(),
+        redisConnectionManager.closeCommandHistory()
+    ])
+
+    runResourceCleanupWithTimeout(cleanupPromise)
         .then(() => {
-            log.info('Redis 连接已全部关闭')
+            log.info('Redis 连接和命令记录已完成退出清理')
         })
         .catch((error) => {
-            log.error('关闭全部 Redis 连接失败', error)
+            log.error('应用资源退出清理失败', error)
         })
         .finally(() => {
             // 不论清理是否完全成功，都释放主进程资源并直接退出，避免 app.quit() 二次触发导致 macOS Dock 状态异常。
-            isRedisCleanupRunning = false
-            isRedisCleanupCompleted = true
+            isResourceCleanupRunning = false
+            isResourceCleanupCompleted = true
             releaseAppResourcesBeforeExit()
             app.exit(0)
         })
@@ -176,7 +181,7 @@ const registerAppEventHandlers = () => {
         activateMainWindow()
     })
 
-    app.on('before-quit', cleanupRedisConnectionsBeforeQuit)
+    app.on('before-quit', cleanupAppResourcesBeforeQuit)
 
     // 应用即将退出时释放全局快捷键，避免主进程退出阶段仍残留注册状态。
     app.on('will-quit', () => {

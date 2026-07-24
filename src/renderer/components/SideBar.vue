@@ -8,7 +8,13 @@
         <SideBarHeader/>
 
         <!-- 连接菜单主体：包含搜索、导出、连接分组和连接项。 -->
-        <SideBarMenu :is-loading="isConnectionConfigsLoading"/>
+        <SideBarMenu
+            :is-loading="isConnectionConfigsLoading"
+            :context-menu-visible="contextMenuVisible"
+            :context-menu-type="contextMenuType"
+            :context-menu-item="contextMenuItem"
+            :context-menu-source="contextMenuSource"
+        />
 
         <!-- 侧边栏底部开源入口。 -->
         <SideBarFooter/>
@@ -59,14 +65,13 @@
 
 <script setup>
 import {storeToRefs} from 'pinia'
-import {onBeforeUnmount, onMounted, ref, shallowRef, watch} from 'vue'
+import {nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch} from 'vue'
 import {ElMessage} from 'element-plus'
 import {useI18n} from '../i18n/index.js'
 import {eventBus} from '../utils/eventBus.js'
 import {connectConfigRepository} from '../database/repositories/ConnectConfigRepository.js'
 import {handleDeleteConnectionConfig, handleDeleteFolder} from '../utils/connectConfigDeleteUtil.js'
 import {handleImportFileSelect} from '../utils/connectConfigImportUtil.js'
-import {mergeConnectionRuntimeSettings} from '../utils/redisConnectionConfigUtil.js'
 import {useBaseStateStore} from '../stores/modules/baseStateStore.js'
 import {useConnectionConfigsStore} from '../stores/modules/connectionConfigsStore.js'
 import {useUserSettingsStore} from '../stores/modules/userSettingsStore.js'
@@ -84,14 +89,13 @@ import CommandDrawer from './drawer/CommandDrawer.vue'
 const {t} = useI18n()
 
 // 连接配置 store：驱动左侧菜单数据、当前激活连接、已打开连接和批量导出选中项。
+const connectionConfigsStore = useConnectionConfigsStore()
 const {
-    activeConnectionConfigId,
-    openedConnectionConfigs,
     connectionConfigs,
     searchKeyword,
     selectedIds,
     isConnectionConfigsLoading
-} = storeToRefs(useConnectionConfigsStore())
+} = storeToRefs(connectionConfigsStore)
 // 基础状态 store：读取搜索模式和导出模式，控制菜单交互状态。
 const {exportModeState, searchModeState} = storeToRefs(useBaseStateStore())
 // 系统连接设置：为连接动作补充连接超时、命令超时等运行时参数。
@@ -112,9 +116,12 @@ const commandDrawerConnection = ref(null) // 当前正在打开的命令行的�
 const contextMenuVisible = ref(false) // 上下文菜单可见性
 const contextMenuType = ref('connection') // 'connection' 或 'group'
 const contextMenuItem = ref(null) // 当前操作的项
+const contextMenuSource = ref('') // 菜单触发入口：右键或更多按钮
 const virtualRef = shallowRef(null) // 浅响应式, 用于popover引用菜单元素
 // 侧边栏注册的全局事件集合：统一登记，卸载时逐项解绑，避免重复监听。
 const sideBarEventBindings = []
+// 连接列表请求序号：搜索和全量加载交错时只允许最后一次请求更新菜单与 loading。
+let connectionListRequestId = 0
 
 
 onMounted(async () => {
@@ -155,17 +162,31 @@ onBeforeUnmount(() => {
 })
 
 // 监听搜索模式状态，如果关闭，则关闭搜索模式
-watch(searchModeState, (newValue, oldValue) => {
+watch(searchModeState, (newValue) => {
     if (!newValue) {
         searchKeyword.value = ''
-        eventBus.emit('search-connection')
+        eventBus.emit('load-connection')
     }
 })
 
 // 监听导出模式状态，关闭时清空选中项
 watch(exportModeState, (newValue) => {
+    if (newValue) {
+        contextMenuVisible.value = false
+        return
+    }
+
     if (!newValue) {
         selectedIds.value.clear()
+    }
+})
+
+// 菜单关闭后清理目标项和定位引用，列表临时悬浮态随之恢复。
+watch(contextMenuVisible, (visible) => {
+    if (!visible) {
+        contextMenuItem.value = null
+        contextMenuSource.value = ''
+        virtualRef.value = null
     }
 })
 
@@ -173,12 +194,23 @@ watch(exportModeState, (newValue) => {
  * 加载连接配置数据
  */
 const loadConnection = async () => {
+    const requestId = ++connectionListRequestId
+
     // 拉取完整连接列表时显式标记加载中，避免初始阶段误显示“创建连接”空态按钮。
     isConnectionConfigsLoading.value = true
     try {
-        connectionConfigs.value = await connectConfigRepository.getAll();
+        const nextConnectionConfigs = await connectConfigRepository.getAll()
+        if (requestId === connectionListRequestId) {
+            connectionConfigs.value = nextConnectionConfigs
+        }
+    } catch (error) {
+        if (requestId === connectionListRequestId) {
+            ElMessage.error(`${t('sideBar.messages.loadConnectionFail')}: ${error.message || t('common.unknownError')}`)
+        }
     } finally {
-        isConnectionConfigsLoading.value = false
+        if (requestId === connectionListRequestId) {
+            isConnectionConfigsLoading.value = false
+        }
     }
 }
 
@@ -186,12 +218,26 @@ const loadConnection = async () => {
  * 搜索连接配置
  */
 const searchConnection = async () => {
+    const requestId = ++connectionListRequestId
+    const keyword = searchKeyword.value
+
     // 搜索时沿用同一套加载状态，便于菜单区域统一展示 loading 反馈。
     isConnectionConfigsLoading.value = true
     try {
-        connectionConfigs.value = await connectConfigRepository.search(searchKeyword.value)
+        const nextConnectionConfigs = keyword.trim()
+            ? await connectConfigRepository.search(keyword)
+            : await connectConfigRepository.getAll()
+        if (requestId === connectionListRequestId) {
+            connectionConfigs.value = nextConnectionConfigs
+        }
+    } catch (error) {
+        if (requestId === connectionListRequestId) {
+            ElMessage.error(`${t('sideBar.messages.searchConnectionFail')}: ${error.message || t('common.unknownError')}`)
+        }
     } finally {
-        isConnectionConfigsLoading.value = false
+        if (requestId === connectionListRequestId) {
+            isConnectionConfigsLoading.value = false
+        }
     }
 }
 
@@ -258,21 +304,21 @@ const handleMenuSelect = (index) => {
             // 获取激活的连接配置
             const connection = connectionConfigs.value.find(config => String(config.id) === index)
             if (connection) {
-                // Copy 打开的连接配置，不然会改变原数据
-                const openedConnection = Object.assign({}, connection)
-                if (!openedConnectionConfigs.value.find(config => config.id === openedConnection.id)) {
-                    // 缓存打开的连接配置
-                    openedConnectionConfigs.value.push(openedConnection)
-                    // 更新连接配置的最后激活时间
-                    connectConfigRepository.updateLastActiveTime(openedConnection.id)
-                    // 将系统设置中的超时参数合并到本次连接请求。
-                    const runtimeConnectionConfig = mergeConnectionRuntimeSettings(openedConnection, connectionSettings.value)
-                    // 打开Redis连接
-                    window.api.redis.connect(openedConnection.id, runtimeConnectionConfig)
+                const isFirstOpen = !connectionConfigsStore.findOpenedConnection(connection.id)
+                connectionConfigsStore.openConnection(connection, connectionSettings.value)
+
+                if (isFirstOpen) {
+                    // 最近连接时间只在真正新开页签时更新，单纯切换已打开页签不重复写 IndexedDB。
+                    connectConfigRepository.updateLastActiveTime(connection.id)
+                        .then((lastActiveAt) => {
+                            if (lastActiveAt) {
+                                connection.last_active_at = lastActiveAt
+                            }
+                        })
+                        .catch(() => {})
                 }
-                activeConnectionConfigId.value = openedConnection.id
             } else {
-                activeConnectionConfigId.value = 0
+                connectionConfigsStore.activateConnection(0)
             }
         }
     } catch (error) {
@@ -281,25 +327,67 @@ const handleMenuSelect = (index) => {
 }
 
 /**
- * 显示上下文菜单
+ * 根据鼠标位置创建 Element Plus Popover 的虚拟触发对象。
+ *
+ * @param {MouseEvent} event - 列表项右键事件。
+ * @returns {{getBoundingClientRect: Function}} 虚拟触发定位对象。
  */
-const showContextMenu = async (data) => {
-    // event - 点击事件
-    // connection - 连接配置对象
-    // type - 类型：'connection' 或 'group'
-    const {event, connection, type} = data
+const createContextMenuVirtualRef = (event) => {
+    const {clientX, clientY} = event
+
+    return {
+        getBoundingClientRect: () => ({
+            width: 0,
+            height: 0,
+            top: clientY,
+            right: clientX,
+            bottom: clientY,
+            left: clientX,
+            x: clientX,
+            y: clientY
+        })
+    }
+}
+
+/**
+ * 使用右键或更多按钮打开共享连接操作菜单。
+ * 已显示的菜单先关闭一帧，使 Popover 能按新的目标重新计算位置。
+ *
+ * @param {Object} data - 菜单触发参数。
+ * @param {MouseEvent} data.event - 鼠标事件。
+ * @param {Object} data.connection - 分组或连接数据。
+ * @param {'connection'|'group'} data.type - 菜单类型。
+ * @param {'context'|'action'} data.source - 菜单触发入口。
+ */
+const showContextMenu = async ({event, connection, type, source = 'action'}) => {
     event.stopPropagation()
+    if (exportModeState.value) {
+        return
+    }
 
-    // 等待 DOM 更新后继续执行
-    setTimeout(async () => {
-        // 先设置菜单项和类型
-        contextMenuItem.value = connection
-        contextMenuType.value = type
-        virtualRef.value = event.target
+    const isSameTarget = contextMenuType.value === type && (
+        type === 'group'
+            ? contextMenuItem.value?.group_name === connection.group_name
+            : String(contextMenuItem.value?.id) === String(connection.id)
+    )
+    if (contextMenuVisible.value && contextMenuSource.value === source && source === 'action' && isSameTarget) {
+        contextMenuVisible.value = false
+        return
+    }
 
-        // 显示菜单
-        contextMenuVisible.value = true
-    }, 50)
+    // currentTarget 只在原生事件派发期间有效，需要在等待 DOM 更新前保留按钮元素。
+    const actionTrigger = event.currentTarget || event.target
+
+    contextMenuVisible.value = false
+    await nextTick()
+
+    contextMenuItem.value = connection
+    contextMenuType.value = type
+    contextMenuSource.value = source
+    virtualRef.value = source === 'context'
+        ? createContextMenuVirtualRef(event)
+        : actionTrigger
+    contextMenuVisible.value = true
 }
 
 /**
@@ -314,8 +402,8 @@ const removeConnection = async (connection) => {
         ElMessage.success(t('sideBar.messages.deleteConnectionSuccess'))
 
         // 关闭已经打开的连接配置
-        if (openedConnectionConfigs.value.find(config => config.id === connection.id)) {
-            eventBus.emit('close-opened-connection', connection)
+        if (connectionConfigsStore.findOpenedConnection(connection.id)) {
+            connectionConfigsStore.closeConnection(connection.id)
         }
 
         // 如果是搜索模式，刷新搜索结果，否则重新加载连接配置列表
@@ -335,6 +423,11 @@ const removeConnection = async (connection) => {
  * @returns {Promise<void>}
  */
 const editConnection = async (connection) => {
+    if (connectionConfigsStore.findOpenedConnection(connection?.id)) {
+        ElMessage.warning(t('connectionDialog.messages.closeBeforeEdit'))
+        return
+    }
+
     editConnectionConfig.value = connection
     editDialogVisible.value = true
 }
@@ -373,8 +466,8 @@ const deleteFolder = async (item) => {
         // 关闭已经打开的连接配置
         if (item.children) {
             item.children.forEach(child => {
-                if (openedConnectionConfigs.value.find(config => config.id === child.id)) {
-                    eventBus.emit('close-opened-connection', child)
+                if (connectionConfigsStore.findOpenedConnection(child.id)) {
+                    connectionConfigsStore.closeConnection(child.id)
                 }
             })
         }

@@ -4,6 +4,7 @@
  */
 import electron from 'electron'
 import {createLogger} from '../../utils/logger.js'
+import {redisCommandHistoryService} from '../../redis/redisCommandHistoryService.js'
 
 const {globalShortcut, ipcMain} = electron
 const log = createLogger('develop-ipc')
@@ -15,8 +16,9 @@ const DEVTOOLS_SHORTCUT = 'CommandOrControl+Shift+I'
  * 启用开发者工具快捷键。
  * 通过卸载拦截器恢复 Electron 对该快捷键的默认处理。
  */
-const enableDevToolsShortcut = () => {
+const enableDevToolsShortcut = async () => {
     globalShortcut.unregister(DEVTOOLS_SHORTCUT)
+    await redisCommandHistoryService.setEnabled(true)
     log.info(`开发者工具快捷键已启用: ${DEVTOOLS_SHORTCUT}`)
 }
 
@@ -24,8 +26,15 @@ const enableDevToolsShortcut = () => {
  * 禁用开发者工具快捷键。
  * 先卸载旧注册再注册空处理器，避免重复注册导致状态不可预期。
  */
-const disableDevToolsShortcut = () => {
+const disableDevToolsShortcut = async () => {
     globalShortcut.unregister(DEVTOOLS_SHORTCUT)
+
+    try {
+        await redisCommandHistoryService.setEnabled(false)
+    } catch (error) {
+        // 持久化失败不能阻止开发者模式关闭，快捷键拦截仍需恢复。
+        log.error('关闭 Redis 命令记录时持久化失败', error)
+    }
 
     const registered = globalShortcut.register(DEVTOOLS_SHORTCUT, () => {
     })

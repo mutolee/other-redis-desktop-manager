@@ -116,6 +116,28 @@ export const formatAbsoluteDateTime = (date, translate) => {
 }
 
 /**
+ * 格式化带秒的绝对时间。
+ * 命令执行记录需要区分短时间内连续发生的多条操作，因此比普通最近连接时间多展示秒。
+ *
+ * @param {string|number|Date} dateTime - 时间戳、时间字符串或 Date 对象
+ * @param {Function} [translate] - 可选的国际化读取函数
+ * @returns {string} YYYY-MM-DD HH:mm:ss 格式时间
+ */
+export const formatAbsoluteDateTimeWithSeconds = (dateTime, translate) => {
+    const normalizedDateTime = typeof dateTime === 'number' ? new Date(dateTime) : dateTime
+    const validDate = toValidDate(normalizedDateTime)
+
+    if (!validDate) {
+        return getTimeText(translate, 'invalid', '无效时间')
+    }
+
+    const baseText = formatAbsoluteDateTime(validDate, translate)
+    const seconds = String(validDate.getSeconds()).padStart(2, '0')
+
+    return `${baseText}:${seconds}`
+}
+
+/**
  * 格式化日期显示。
  *
  * @param {string|Date} dateTime - ISO 8601 时间字符串或 Date 对象

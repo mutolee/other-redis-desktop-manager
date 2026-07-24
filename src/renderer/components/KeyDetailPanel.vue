@@ -17,8 +17,17 @@
                 <!-- 公共头部第一行：类型标签、Key 名称编辑区和右侧操作按钮。 -->
                 <div class="detail-header">
                     <div class="detail-title">
-                        <el-tag :type="getTagType(keyData?.type)" class="detail-type-tag">
-                            {{ keyTypeText }}
+                        <el-tag
+                            :type="getTagType(keyData?.type)"
+                            class="detail-type-tag"
+                            :class="{'is-type-loading': isKeyTypeLoading}"
+                        >
+                            <span v-if="isKeyTypeLoading" class="type-loading-dots" aria-hidden="true">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </span>
+                            <span v-else>{{ keyTypeText }}</span>
                         </el-tag>
 
                         <el-input
@@ -56,13 +65,13 @@
                             />
                         </el-tooltip>
 
-                        <el-tooltip :content="t('keyDetail.tooltips.copyCommand')" placement="bottom">
+                        <el-tooltip :content="copyCommandTooltip" placement="bottom">
                             <el-button
                                 circle
                                 plain
                                 type="primary"
                                 :icon="CommandCode"
-                                :disabled="isHeaderReadonly"
+                                :disabled="isHeaderReadonly || isStringValueTruncated"
                                 @click="handleCopySetCommand"
                             />
                         </el-tooltip>
@@ -149,6 +158,7 @@
                     :tab-id="tabId"
                     :key-data="keyData"
                     @refresh="fetchData"
+                    @value-loaded="handleStringValueLoaded"
                 />
             </div>
         </template>
@@ -167,6 +177,7 @@ import ZSetDetailPanel from './keyDetail/ZSetDetailPanel.vue'
 import StreamDetailPanel from './keyDetail/StreamDetailPanel.vue'
 import UnsupportedDetailPanel from './keyDetail/UnsupportedDetailPanel.vue'
 import {useI18n} from '../i18n/index.js'
+import {formatByteSize} from '../utils/byteSizeUtil.js'
 
 // 国际化文案读取函数：驱动详情页空态、提示、确认框和操作反馈文案。
 const {t} = useI18n()
@@ -247,30 +258,35 @@ const actionLoading = computed(() => renaming.value || deleting.value || changin
 // Header 是否只读：Key 不存在或详情未就绪时，禁止重命名、TTL、复制命令和删除等操作。
 const isHeaderReadonly = computed(() => loading.value || actionLoading.value || !keyData.value || isMissingKey.value)
 
-// 顶部类型标签文本：优先使用最新加载到的真实类型。
-const keyTypeText = computed(() => (
-    isMissingKey.value ? 'missing' : (keyData.value?.type || props.selectedKey?.type || 'unknown')
-).toUpperCase())
+// String 仅加载预览时禁止复制 SET 命令，避免把截断内容误当成完整 Value。
+const isStringValueTruncated = computed(() => (
+    keyData.value?.type === 'string' && Boolean(keyData.value?.valueTruncated)
+))
 
-/**
- * 将字节数格式化为人类可读单位。
- * @param {number} bytes 原始字节数
- * @returns {string} 格式化后的容量文本
- */
-const formatBytes = (bytes) => {
-    const normalizedBytes = Number(bytes)
+// 复制命令提示：String 预览未完整加载时说明禁用原因，其余类型沿用默认提示。
+const copyCommandTooltip = computed(() => (
+    isStringValueTruncated.value
+        ? t('keyDetailPanels.string.messages.loadFullBeforeCopy')
+        : t('keyDetail.tooltips.copyCommand')
+))
 
-    if (!Number.isFinite(normalizedBytes) || normalizedBytes <= 0) {
-        return '0 B'
+// 顶部类型加载状态：详情未返回或列表类型仍在补全时，沿用 Key 列表中的圆点占位效果。
+const isKeyTypeLoading = computed(() => (
+    !keyData.value?.type && (loading.value || props.selectedKey?.typeLoading)
+))
+
+// 顶部类型标签文本：优先使用详情返回的真实类型，仅在加载结束后才允许回退到 UNKNOWN。
+const keyTypeText = computed(() => {
+    if (isMissingKey.value) {
+        return 'MISSING'
     }
 
-    const units = ['B', 'KB', 'MB', 'GB']
-    const unitIndex = Math.min(Math.floor(Math.log(normalizedBytes) / Math.log(1024)), units.length - 1)
-    const value = normalizedBytes / (1024 ** unitIndex)
-    const precision = unitIndex === 0 ? 0 : 2
+    if (keyData.value?.type) {
+        return keyData.value.type.toUpperCase()
+    }
 
-    return `${Number(value.toFixed(precision))} ${units[unitIndex]}`
-}
+    return String(props.selectedKey?.type || 'unknown').toUpperCase()
+})
 
 // Size 展示文本：String 按 UTF-8 字节格式化，集合类型按元素数量展示。
 const sizeText = computed(() => {
@@ -279,8 +295,24 @@ const sizeText = computed(() => {
     }
 
     // Header 的 Size 展示 Redis MEMORY USAGE 返回的空间占用；集合元素数量仍由各类型详情内部使用 size 字段。
-    return formatBytes(keyData.value.memoryUsage)
+    return formatByteSize(keyData.value.memoryUsage)
 })
+
+/**
+ * 合并 String 子面板主动加载到的完整 Value。
+ * 父级同步后，顶部复制 SET 命令等公共操作才能确认当前内容不是截断预览。
+ * @param {Object} fullValueData 完整 String Value 及字节状态
+ */
+const handleStringValueLoaded = (fullValueData) => {
+    if (!keyData.value || keyData.value.type !== 'string' || fullValueData?.key !== keyData.value.key) {
+        return
+    }
+
+    keyData.value = {
+        ...keyData.value,
+        ...fullValueData
+    }
+}
 
 // Key 名称是否已经被用户修改，用于控制右侧提交按钮是否显示。
 const isKeyChanged = computed(() => {
@@ -420,7 +452,12 @@ const ensureCurrentKeyExists = async () => {
     }
 
     // EXISTS 返回 1 表示 Key 存在，返回 0 表示已过期、被删除或列表尚未刷新。
-    const existsResult = await window.api.redis.executeCommand(props.tabId, 'EXISTS', [keyData.value.key])
+    const existsResult = await window.api.redis.executeCommand(
+        props.tabId,
+        'EXISTS',
+        [keyData.value.key],
+        {source: 'key-detail'}
+    )
 
     if (!existsResult.success) {
         ElMessage.error(existsResult.error || t('keyDetail.messages.checkKeyFail'))
@@ -463,7 +500,12 @@ const handleRenameKey = async () => {
             type: 'warning'
         })
 
-        const result = await window.api.redis.executeCommand(props.tabId, 'RENAMENX', [oldKey, nextKey])
+        const result = await window.api.redis.executeCommand(
+            props.tabId,
+            'RENAMENX',
+            [oldKey, nextKey],
+            {source: 'key-detail'}
+        )
 
         if (!result.success) {
             ElMessage.error(result.error || t('keyDetail.messages.renameFail'))
@@ -517,7 +559,7 @@ const handleTtlChange = async () => {
         // 根据 TTL 语义选择 Redis 命令，避免把 -1 直接传给 EXPIRE。
         const command = nextTtl === -1 ? 'PERSIST' : 'EXPIRE'
         const args = nextTtl === -1 ? [keyData.value.key] : [keyData.value.key, String(nextTtl)]
-        const result = await window.api.redis.executeCommand(props.tabId, command, args)
+        const result = await window.api.redis.executeCommand(props.tabId, command, args, {source: 'key-detail'})
 
         if (!result.success) {
             editableTtl.value = savedTtl.value
@@ -549,7 +591,7 @@ const handleTtlChange = async () => {
  * 复制出的命令用于尽量还原当前 Key 内容，String 类型会生成 SET 命令。
  */
 const handleCopySetCommand = async () => {
-    if (isHeaderReadonly.value) {
+    if (isHeaderReadonly.value || isStringValueTruncated.value) {
         return
     }
 
@@ -586,7 +628,12 @@ const handleDeleteKey = async () => {
             type: 'warning'
         })
 
-        const result = await window.api.redis.executeCommand(props.tabId, 'DEL', [keyData.value.key])
+        const result = await window.api.redis.executeCommand(
+            props.tabId,
+            'DEL',
+            [keyData.value.key],
+            {source: 'key-detail'}
+        )
 
         if (!result.success) {
             ElMessage.error(result.error || t('keyDetail.messages.deleteFail'))
@@ -716,6 +763,51 @@ html.dark .key-detail-panel {
     justify-content: center;
     font-weight: 600;
     border-color: color-mix(in srgb, currentColor 42%, transparent) !important;
+}
+
+/* 类型异步补充态：和 Key 列表保持一致，弱化标签以表达详情类型仍在查询。 */
+.detail-type-tag.is-type-loading {
+    color: var(--el-text-color-placeholder);
+    border-color: var(--el-border-color-lighter) !important;
+    background: var(--el-fill-color-light);
+}
+
+/* 类型加载圆点：复用 Key 列表的尺寸、间距与动画，避免文本省略号产生垂直偏移。 */
+.type-loading-dots {
+    display: inline-flex;
+    height: 12px;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    vertical-align: middle;
+}
+
+.type-loading-dots > span {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: type-loading-pulse 1.2s ease-in-out infinite;
+}
+
+.type-loading-dots > span:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+.type-loading-dots > span:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+@keyframes type-loading-pulse {
+    0%,
+    60%,
+    100% {
+        opacity: 0.35;
+    }
+
+    30% {
+        opacity: 1;
+    }
 }
 
 /* Key 名称输入框：等宽字体，便于阅读冒号分隔的 Redis Key。 */

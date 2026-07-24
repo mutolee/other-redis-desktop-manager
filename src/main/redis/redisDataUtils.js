@@ -96,6 +96,30 @@ export const parseRedisConfigDatabases = (configResult, fallback = DEFAULT_DATAB
 }
 
 /**
+ * 将 HSCAN 返回的交替 field/value 数组转换为 Hash 详情页使用的数据结构。
+ * 同时保留 Value 原始字节的 Base64，供二进制和序列化格式解析使用。
+ * @param {Array} scanResult - Redis 返回的 [cursor, [field, value...]]。
+ * @returns {{cursor:string, items:Array<{field:string,value:string,valueRawBase64:string}>}}
+ */
+export const normalizeHashScanResult = (scanResult = []) => {
+    const cursor = scanResult?.[0]?.toString('utf8') ?? '0'
+    const rawItems = Array.isArray(scanResult?.[1]) ? scanResult[1] : []
+    const items = []
+
+    for (let index = 0; index < rawItems.length; index += 2) {
+        const rawValue = rawItems[index + 1]
+
+        items.push({
+            field: rawItems[index]?.toString('utf8') ?? '',
+            value: rawValue?.toString('utf8') ?? '',
+            valueRawBase64: Buffer.isBuffer(rawValue) ? rawValue.toString('base64') : ''
+        })
+    }
+
+    return {cursor, items}
+}
+
+/**
  * 将 XREVRANGE/XRANGE 返回的 Stream entry 转成前端表格结构。
  * @param {Array} entries - Redis 返回的 [id, [field, value...]] 列表。
  * @returns {Array<{id:string, fields:Array, summary:string}>}

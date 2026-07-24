@@ -9,17 +9,30 @@
         <!-- String 工具栏：左侧控制编辑状态，右侧在预览模式切换 value 展示格式。 -->
         <div class="string-toolbar">
             <div class="string-toolbar-actions">
-                <el-button
-                    v-if="!isEditingString"
-                    type="primary"
-                    @click="handleEditString"
-                >
-                    <el-icon>
-                        <Edit/>
-                    </el-icon>
-                    {{ t('keyDetailPanels.common.edit') }}
-                </el-button>
-
+                <template v-if="!isEditingString">
+                    <el-button
+                        v-if="valueTruncated"
+                        type="primary"
+                        plain
+                        :loading="loadingFullValue"
+                        @click="handleLoadFullValue"
+                    >
+                        <el-icon>
+                            <Download/>
+                        </el-icon>
+                        {{ t('keyDetailPanels.string.loadFull') }}
+                    </el-button>
+                    <el-button
+                        v-else
+                        type="primary"
+                        @click="handleEditString"
+                    >
+                        <el-icon>
+                            <Edit/>
+                        </el-icon>
+                        {{ t('keyDetailPanels.common.edit') }}
+                    </el-button>
+                </template>
                 <template v-else>
                     <el-button
                         type="success"
@@ -49,6 +62,19 @@
             </div>
         </div>
 
+        <!-- 截断预览提示：说明当前展示范围，完整内容由用户主动加载。 -->
+        <div v-if="valueTruncated" class="string-preview-notice">
+            <el-icon class="string-preview-notice-icon">
+                <Attention/>
+            </el-icon>
+            <span>
+                {{ t('keyDetailPanels.string.previewNotice', {
+                    loaded: formatByteSize(loadedBytes),
+                    total: formatByteSize(totalBytes)
+                }) }}
+            </span>
+        </div>
+
         <!-- String 解析提示：解析失败时保留原始 value 展示，并提示用户当前格式不匹配。 -->
         <el-alert
             v-if="formatWarningMessage"
@@ -75,11 +101,12 @@
 
 <script setup>
 import {computed, ref, watch} from 'vue'
-import {ElMessage} from 'element-plus'
-import {Check, Close, Edit} from '@icon-park/vue-next'
+import {ElMessage, ElMessageBox} from 'element-plus'
+import {Attention, Check, Close, Download, Edit} from '@icon-park/vue-next'
 import {useI18n} from '../../i18n/index.js'
 import ValueFormatSelect from '../common/ValueFormatSelect.vue'
 import {DEFAULT_VALUE_FORMAT_TYPE, formatValueForDisplay} from '../../utils/valueFormatters/index.js'
+import {formatByteSize} from '../../utils/byteSizeUtil.js'
 
 // 国际化文案读取函数：驱动 String 编辑按钮和保存反馈文案。
 const {t} = useI18n()
@@ -96,8 +123,8 @@ const props = defineProps({
     }
 })
 
-// 对外事件：保存成功后通知父组件重新拉取 Key 详情，保证 TTL/Size/Value 与 Redis 实际数据一致。
-const emit = defineEmits(['refresh'])
+// 对外事件：保存成功后刷新详情；完整 Value 加载后同步父级 Key 数据，保证顶部复制命令使用完整内容。
+const emit = defineEmits(['refresh', 'value-loaded'])
 
 // 编辑状态：控制工具栏按钮、textarea 只读态和保存流程。
 const isEditingString = ref(false)
@@ -105,17 +132,32 @@ const isEditingString = ref(false)
 // 保存状态：防止重复提交，并给保存按钮提供 loading 反馈。
 const saving = ref(false)
 
+// 完整 Value 加载状态：控制按钮 loading，并避免重复发起大数据 IPC 请求。
+const loadingFullValue = ref(false)
+
 // String 编辑值：与 textarea 双向绑定，进入编辑时基于当前 keyData.value 初始化。
 const stringValue = ref('')
+
+// 当前已加载的 String 文本与原始字节：首屏可能只是预览，主动加载后替换为完整内容。
+const loadedValue = ref('')
+const loadedValueRawBase64 = ref('')
+
+// String 字节状态：用于展示预览范围，并决定是否允许直接进入编辑模式。
+const totalBytes = ref(0)
+const loadedBytes = ref(0)
+const valueTruncated = ref(false)
 
 // 当前预览展示格式：只影响只读预览，不参与编辑和保存序列化。
 const selectedValueFormat = ref(DEFAULT_VALUE_FORMAT_TYPE)
 
+// 超大 String 主动完整加载前的确认阈值，避免一次 IPC 在无提示时传输过多数据。
+const FULL_VALUE_CONFIRM_BYTES = 50 * 1024 * 1024
+
 // 预览解析结果：在非编辑模式下按用户选择的格式展示 String value。
 const formattedValueResult = computed(() => formatValueForDisplay(
-    props.keyData?.value,
+    loadedValue.value,
     selectedValueFormat.value,
-    {rawBase64: props.keyData?.valueRawBase64}
+    {rawBase64: loadedValueRawBase64.value}
 ))
 
 // textarea 当前展示值：编辑时始终使用原始值，预览时使用解析后的展示文本。
@@ -144,7 +186,12 @@ const normalizeStringValue = (value) => (typeof value === 'string' ? value : '')
  * 进入时重新同步一次当前值，避免用户查看期间外部刷新导致编辑基线过旧。
  */
 const handleEditString = () => {
-    stringValue.value = normalizeStringValue(props.keyData.value)
+    if (valueTruncated.value) {
+        ElMessage.warning(t('keyDetailPanels.string.messages.loadFullBeforeEdit'))
+        return
+    }
+
+    stringValue.value = loadedValue.value
     isEditingString.value = true
 }
 
@@ -153,8 +200,86 @@ const handleEditString = () => {
  * 放弃 textarea 中未保存内容，并恢复到最近一次从 Redis 加载到的值。
  */
 const handleCancelEditString = () => {
-    stringValue.value = normalizeStringValue(props.keyData.value)
+    stringValue.value = loadedValue.value
     isEditingString.value = false
+}
+
+/**
+ * 主动读取完整 String Value。
+ * 超过确认阈值时先提示内存风险，用户确认后再执行可能较大的 IPC 数据传输。
+ */
+const handleLoadFullValue = async () => {
+    if (loadingFullValue.value || !valueTruncated.value) {
+        return
+    }
+
+    const requestKey = props.keyData.key
+
+    try {
+        let confirmed = false
+
+        if (totalBytes.value >= FULL_VALUE_CONFIRM_BYTES) {
+            await ElMessageBox.confirm(
+                t('keyDetailPanels.string.confirmLoadFull.message', {value: formatByteSize(totalBytes.value)}),
+                t('keyDetailPanels.string.confirmLoadFull.title'),
+                {
+                    confirmButtonText: t('keyDetailPanels.string.confirmLoadFull.confirmButton'),
+                    cancelButtonText: t('common.cancel'),
+                    type: 'warning'
+                }
+            )
+            confirmed = true
+        }
+
+        loadingFullValue.value = true
+        let response = await window.api.redis.getFullStringValue(props.tabId, requestKey, {confirmed})
+
+        if (!response.success) {
+            ElMessage.error(response.error || t('keyDetailPanels.string.messages.loadFullFail'))
+            return
+        }
+
+        // Value 在预览后可能被外部放大，main 以最新 STRLEN 为准重新要求确认。
+        if (response.data?.confirmationRequired) {
+            await ElMessageBox.confirm(
+                t('keyDetailPanels.string.confirmLoadFull.message', {value: formatByteSize(response.data.size)}),
+                t('keyDetailPanels.string.confirmLoadFull.title'),
+                {
+                    confirmButtonText: t('keyDetailPanels.string.confirmLoadFull.confirmButton'),
+                    cancelButtonText: t('common.cancel'),
+                    type: 'warning'
+                }
+            )
+            response = await window.api.redis.getFullStringValue(props.tabId, requestKey, {confirmed: true})
+
+            if (!response.success) {
+                ElMessage.error(response.error || t('keyDetailPanels.string.messages.loadFullFail'))
+                return
+            }
+        }
+
+        // Key 在请求期间被重命名或详情已刷新时，旧请求结果不再回写当前面板。
+        if (requestKey !== props.keyData.key) {
+            return
+        }
+
+        const fullValueData = response.data || {}
+        loadedValue.value = normalizeStringValue(fullValueData.value)
+        loadedValueRawBase64.value = fullValueData.valueRawBase64 || ''
+        totalBytes.value = Number(fullValueData.size) || 0
+        loadedBytes.value = Number(fullValueData.loadedBytes) || totalBytes.value
+        valueTruncated.value = Boolean(fullValueData.valueTruncated)
+        stringValue.value = loadedValue.value
+        selectedValueFormat.value = DEFAULT_VALUE_FORMAT_TYPE
+        emit('value-loaded', fullValueData)
+        ElMessage.success(t('keyDetailPanels.string.messages.loadFullSuccess'))
+    } catch (error) {
+        if (error !== 'cancel' && error !== 'close') {
+            ElMessage.error(error.message || t('keyDetailPanels.string.messages.loadFullFail'))
+        }
+    } finally {
+        loadingFullValue.value = false
+    }
 }
 
 /**
@@ -185,7 +310,7 @@ const handleSaveString = async () => {
         const result = await window.api.redis.executeCommand(props.tabId, 'SET', [
             props.keyData.key,
             stringValue.value
-        ])
+        ], {source: 'key-detail'})
 
         if (!result.success) {
             ElMessage.error(result.error || t('keyDetailPanels.string.messages.saveFail'))
@@ -208,10 +333,16 @@ const handleSaveString = async () => {
 watch(
     () => props.keyData,
     (nextKeyData) => {
-        stringValue.value = normalizeStringValue(nextKeyData?.value)
+        loadedValue.value = normalizeStringValue(nextKeyData?.value)
+        loadedValueRawBase64.value = nextKeyData?.valueRawBase64 || ''
+        totalBytes.value = Number(nextKeyData?.size) || 0
+        loadedBytes.value = Number(nextKeyData?.loadedBytes) || 0
+        valueTruncated.value = Boolean(nextKeyData?.valueTruncated)
+        stringValue.value = loadedValue.value
         selectedValueFormat.value = DEFAULT_VALUE_FORMAT_TYPE
         isEditingString.value = false
         saving.value = false
+        loadingFullValue.value = false
     },
     {immediate: true}
 )
@@ -261,6 +392,29 @@ watch(
     color: var(--el-text-color-secondary);
     font-size: 12px;
     white-space: nowrap;
+}
+
+/* 截断预览说明：轻量底色与正文区分，提示信息保持单行优先并允许窄窗口换行。 */
+.string-preview-notice {
+    display: flex;
+    flex-shrink: 0;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 9px 12px;
+    color: var(--el-text-color-regular);
+    font-size: 13px;
+    line-height: 1.6;
+    background: var(--el-fill-color-light);
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 4px;
+}
+
+.string-preview-notice-icon {
+    flex-shrink: 0;
+    margin-top: 3px;
+    color: var(--el-color-warning);
+    font-size: 16px;
 }
 
 /* 解析提示：高度由内容自然决定，但和 textarea 保持明确间距。 */

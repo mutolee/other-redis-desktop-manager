@@ -10,13 +10,12 @@
         <!-- 已打开连接页签导航。 -->
         <PageNavbar/>
 
-        <!-- 连接内容区：缓存每个连接页，切换页签时保留 Key 列表和详情状态。 -->
-        <keep-alive include="PageInfo">
+        <!-- 连接内容区：只挂载当前页，并为最近使用的连接保留有限缓存，控制大 Key 列表的内存占用。 -->
+        <keep-alive :max="PAGE_INFO_CACHE_LIMIT">
             <PageInfo
-                v-for="tab in openedConnectionConfigs"
-                :key="tab.id"
-                :tab-id="String(tab.id)"
-                v-show="String(activeConnectionConfigId) === String(tab.id)"
+                v-if="currOpenedConnectionConfig.id"
+                :key="currOpenedConnectionConfig.pageInstanceKey || currOpenedConnectionConfig.id"
+                :tab-id="String(activeConnectionConfigId)"
             />
         </keep-alive>
     </div>
@@ -29,8 +28,11 @@ import PageInfo from './PageInfo.vue'
 import PageNavbar from './PageNavbar.vue'
 import {useConnectionConfigsStore} from '../stores/modules/connectionConfigsStore.js'
 
-// 连接配置 store：读取当前激活连接 ID 和已打开连接列表，用于控制 PageInfo 缓存和显隐。
-const {activeConnectionConfigId, openedConnectionConfigs} = storeToRefs(useConnectionConfigsStore())
+// PageInfo 缓存上限：限制大型 Key 列表和详情状态长期驻留的连接数量。
+const PAGE_INFO_CACHE_LIMIT = 8
+
+// 连接配置 store：当前只渲染活动连接，其余最近使用页面由 KeepAlive 缓存。
+const {activeConnectionConfigId, currOpenedConnectionConfig} = storeToRefs(useConnectionConfigsStore())
 </script>
 
 <style scoped>

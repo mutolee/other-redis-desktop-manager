@@ -100,6 +100,7 @@
             :has-more="hasMore"
             :loading-more="isLoadingMore"
             :loading-all="isLoadingAll"
+            :limit-reached="isLoadLimitReached"
             @load-all="handleLoadAll"
             @load-more="handleLoadMore"
         />
@@ -218,8 +219,16 @@ import OverflowTooltip from '../common/OverflowTooltip.vue'
 import ViewerTextarea from '../common/ViewerTextarea.vue'
 import ValueFormatSelect from '../common/ValueFormatSelect.vue'
 import DetailLoadFooter from './common/DetailLoadFooter.vue'
+import {useKeyDetailBatchRequest} from '../../composables/useKeyDetailBatchRequest.js'
 import {useI18n} from '../../i18n/index.js'
 import {DEFAULT_VALUE_FORMAT_TYPE, formatValueForDisplay} from '../../utils/valueFormatters/index.js'
+import {
+    getKeyDetailRangeStop,
+    hasReachedKeyDetailLimit,
+    KEY_DETAIL_LOAD_ALL_BATCH_SIZE,
+    KEY_DETAIL_PAGE_SIZE,
+    takeKeyDetailItemsWithinLimit
+} from '../../utils/keyDetailCollectionUtil.js'
 
 // 国际化文案读取函数：驱动 ZSet 表格、弹窗和操作反馈文案。
 const {t} = useI18n()
@@ -235,6 +244,9 @@ const props = defineProps({
         required: true
     }
 })
+
+// 对外事件：ZSet 写操作会改变排名边界，成功后由父级重新拉取首屏详情和分页基线。
+const emit = defineEmits(['refresh'])
 
 // 搜索关键词：只过滤当前已加载的 ZSet 成员，不触发 Redis 查询。
 const searchKeyword = ref('')
@@ -277,23 +289,39 @@ const deletingMember = ref('')
 // Score 排序方向：默认保持 Redis ZREVRANGE 的高分到低分展示，点击表头后在升序/降序间切换。
 const scoreSortDirection = ref('desc')
 
-// 加载更多状态：控制底部“加载更多”按钮 loading 和重复点击保护。
-const isLoadingMore = ref(false)
+// 加载更多请求控制器：切换 Key、停用组件或写入数据后，旧分页结果不得继续回写。
+const {
+    loading: isLoadingMore,
+    beginRequest: beginLoadMoreRequest,
+    isRequestCurrent: isLoadMoreRequestCurrent,
+    finishRequest: finishLoadMoreRequest,
+    invalidateRequest: invalidateLoadMoreRequest
+} = useKeyDetailBatchRequest()
 
-// 加载全部状态：控制底部“加载全部”按钮 loading 和重复点击保护。
-const isLoadingAll = ref(false)
+// 加载全部请求控制器：逐批写入列表，并在组件停用、销毁或切换 Key 时让旧循环失效。
+const {
+    loading: isLoadingAll,
+    beginRequest: beginLoadAllRequest,
+    isRequestCurrent: isLoadAllRequestCurrent,
+    finishRequest: finishLoadAllRequest,
+    invalidateRequest: invalidateLoadAllRequest
+} = useKeyDetailBatchRequest()
 
 // 当前 ZSet 总长度：初始来自 keyData.size，后续每次分页请求后用后端 ZCARD 结果校正。
 const zsetTotalSize = ref(0)
 
-// 每次“加载更多”的分页大小：和主进程首屏 ZSet 加载数量保持一致。
-const ZSET_PAGE_SIZE = 100
-
 // 虚拟表格固定行高：和当前行内按钮尺寸、文本行高保持一致，保证滚动定位稳定。
 const ROW_HEIGHT = 41
 
-// 当前是否仍有未加载成员：驱动底部按钮禁用状态。
-const hasMore = computed(() => loadedItems.value.length < zsetTotalSize.value)
+// 是否因为详情展示上限停止加载：底部常驻说明当前并非已经读取完整 ZSet。
+const isLoadLimitReached = computed(() => (
+    hasReachedKeyDetailLimit(loadedItems.value.length, zsetTotalSize.value)
+))
+
+// 当前是否仍可加载成员：既要存在未读取数据，也不能超过 renderer 展示上限。
+const hasMore = computed(() => (
+    loadedItems.value.length < zsetTotalSize.value && !isLoadLimitReached.value
+))
 
 // 当前是否处于编辑已有成员模式：编辑时可能只改 Score，也可能同时改 Member。
 const isEditMode = computed(() => itemEditorMode.value === 'edit')
@@ -337,15 +365,10 @@ const formatScore = (score) => {
 
 // ZSet 表格数据：把 Redis 返回成员转换为带排名、成员和分数展示值的行结构。
 const rows = computed(() => {
-    // Score 表头排序只影响当前已加载数据的展示顺序，不触发 Redis 重新查询。
-    const sortedItems = [...loadedItems.value].sort((left, right) => {
-        const leftScore = Number(left?.score) || 0
-        const rightScore = Number(right?.score) || 0
-
-        return scoreSortDirection.value === 'desc'
-            ? rightScore - leftScore
-            : leftScore - rightScore
-    })
+    // Redis 分页和本地编辑始终维护分数降序；升序展示时直接反转，避免逐批加载期间反复全量排序。
+    const sortedItems = scoreSortDirection.value === 'desc'
+        ? loadedItems.value
+        : [...loadedItems.value].reverse()
 
     return sortedItems.map((item, index) => ({
         rank: index + 1,
@@ -413,23 +436,13 @@ const buildItemAddCommand = (item) => {
 }
 
 /**
- * 按 Score 倒序整理本地 ZSet 成员。
- * Redis 详情页当前按 ZREVRANGE 展示，本地新增/编辑后也保持同样排序。
- * @param {Array<Object>} items ZSet 成员列表
- * @returns {Array<Object>} 排序后的成员列表
- */
-const sortZSetItems = (items) => {
-    return [...items].sort((left, right) => Number(right.score) - Number(left.score))
-}
-
-/**
  * 执行 Redis 命令并校验返回。
  * @param {string} command Redis 命令
  * @param {Array<string|number>} args 命令参数
  * @returns {Promise<unknown>} Redis 原始返回结果
  */
 const runRedisCommand = async (command, args) => {
-    const response = await window.api.redis.executeCommand(props.tabId, command, args)
+    const response = await window.api.redis.executeCommand(props.tabId, command, args, {source: 'key-detail'})
 
     if (!response.success) {
         throw new Error(response.error || t('keyDetailPanels.common.messages.commandFail', {value: command}))
@@ -470,6 +483,15 @@ const handleSaveItem = async () => {
         return
     }
 
+    // ZSet 按排名下标分页，写入前停止旧循环，避免分数或成员变化后继续使用过期排名。
+    if (isLoadingMore.value) {
+        invalidateLoadMoreRequest()
+    }
+
+    if (isLoadingAll.value) {
+        invalidateLoadAllRequest()
+    }
+
     savingItem.value = true
 
     try {
@@ -493,18 +515,11 @@ const handleSaveItem = async () => {
             await runRedisCommand('ZREM', [props.keyData.key, originalMember])
         }
 
-        if (isEditMode.value) {
-            const nextItems = loadedItems.value.filter((item) => item.member !== originalMember)
-            loadedItems.value = sortZSetItems([...nextItems, normalizeZSetItem({member, score})])
-        } else {
-            loadedItems.value = sortZSetItems([normalizeZSetItem({member, score}), ...loadedItems.value])
-            zsetTotalSize.value += 1
-        }
-
         itemEditorVisible.value = false
         ElMessage.success(isEditMode.value
             ? t('keyDetailPanels.common.messages.memberUpdated')
             : t('keyDetailPanels.common.messages.memberAdded'))
+        emit('refresh')
     } catch (error) {
         ElMessage.error(error.message || t('keyDetailPanels.zset.messages.saveFail'))
     } finally {
@@ -566,6 +581,14 @@ const handleDeleteItem = async (row) => {
             }
         )
 
+        if (isLoadingMore.value) {
+            invalidateLoadMoreRequest()
+        }
+
+        if (isLoadingAll.value) {
+            invalidateLoadAllRequest()
+        }
+
         deletingMember.value = row.member
         const deleteResult = await runRedisCommand('ZREM', [props.keyData.key, row.member])
 
@@ -574,9 +597,8 @@ const handleDeleteItem = async (row) => {
             return
         }
 
-        loadedItems.value = loadedItems.value.filter((item) => item.member !== row.member)
-        zsetTotalSize.value = Math.max(0, zsetTotalSize.value - 1)
         ElMessage.success(t('keyDetailPanels.common.messages.memberDeleted'))
+        emit('refresh')
     } catch (error) {
         if (error !== 'cancel' && error !== 'close') {
             ElMessage.error(error.message || t('keyDetailPanels.zset.messages.deleteFail'))
@@ -590,11 +612,12 @@ const handleDeleteItem = async (row) => {
  * 拉取指定排名范围内的 ZSet 成员。
  * @param {number} start ZREVRANGE 起始排名下标
  * @param {number} stop ZREVRANGE 结束排名下标
+ * @param {string} key 发起请求时固定的 Key，避免详情切换后误读新 Key
  * @returns {Promise<{items:Array, size:number}>} 后端返回的 ZSet 成员和最新总长度
  */
-const fetchZSetRange = async (start, stop) => {
+const fetchZSetRange = async (start, stop, key = props.keyData.key) => {
     // 通过 preload 暴露的 IPC 调用主进程，让 Redis 命令仍然留在 main 边界内执行。
-    const response = await window.api.redis.getZSetRange(props.tabId, props.keyData.key, start, stop)
+    const response = await window.api.redis.getZSetRange(props.tabId, key, start, stop)
 
     if (!response.success) {
         throw new Error(response.error || t('keyDetailPanels.zset.messages.loadFail'))
@@ -617,46 +640,96 @@ const handleLoadMore = async () => {
         return
     }
 
-    isLoadingMore.value = true
+    const requestId = beginLoadMoreRequest()
+    const requestKeyData = props.keyData
+    const requestKey = props.keyData.key
 
     try {
         const start = loadedItems.value.length
-        const stop = Math.min(start + ZSET_PAGE_SIZE - 1, zsetTotalSize.value - 1)
-        const {items, size} = await fetchZSetRange(start, stop)
+        const stop = getKeyDetailRangeStop(start, zsetTotalSize.value, KEY_DETAIL_PAGE_SIZE)
+        const {items, size} = await fetchZSetRange(start, stop, requestKey)
+
+        if (!isLoadMoreRequestCurrent(requestId) || requestKeyData !== props.keyData || requestKey !== props.keyData.key) {
+            return
+        }
 
         // 每次分页返回都会带最新 ZCARD，用它校正底部按钮是否还需要可点击。
         zsetTotalSize.value = size
-        loadedItems.value = [...loadedItems.value, ...items]
+        loadedItems.value = [
+            ...loadedItems.value,
+            ...takeKeyDetailItemsWithinLimit(loadedItems.value.length, items)
+        ]
     } catch (error) {
-        ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadMoreFail'))
+        if (isLoadMoreRequestCurrent(requestId) && requestKeyData === props.keyData && requestKey === props.keyData.key) {
+            ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadMoreFail'))
+        }
     } finally {
-        isLoadingMore.value = false
+        finishLoadMoreRequest(requestId)
     }
 }
 
 /**
- * 一次性加载剩余全部 ZSet 成员。
- * 仅拉取当前未加载的范围，避免重复覆盖已经展示的首段数据。
+ * 分批加载剩余 ZSet 成员，直到读完或达到详情展示上限。
+ * 每批返回后立即追加到虚拟列表，让用户可以看到加载进度并保留中途成功的数据。
  */
 const handleLoadAll = async () => {
-    if (!hasMore.value || isLoadingMore.value || isLoadingAll.value) {
+    if (isLoadingAll.value) {
+        invalidateLoadAllRequest()
         return
     }
 
-    isLoadingAll.value = true
+    if (!hasMore.value || isLoadingMore.value) {
+        return
+    }
+
+    const requestId = beginLoadAllRequest()
+    const requestKeyData = props.keyData
+    const requestKey = props.keyData.key
 
     try {
-        const start = loadedItems.value.length
-        const stop = Math.max(start, zsetTotalSize.value - 1)
-        const {items, size} = await fetchZSetRange(start, stop)
+        let latestSize = zsetTotalSize.value
 
-        // 加载剩余全部时同样校正总长度，兼容后台 ZSet 在查看期间发生变化。
-        zsetTotalSize.value = size
-        loadedItems.value = [...loadedItems.value, ...items]
+        while (
+            loadedItems.value.length < latestSize &&
+            !hasReachedKeyDetailLimit(loadedItems.value.length, latestSize)
+        ) {
+            const start = loadedItems.value.length
+            const stop = getKeyDetailRangeStop(start, latestSize, KEY_DETAIL_LOAD_ALL_BATCH_SIZE)
+
+            if (stop < start) {
+                break
+            }
+
+            const {items, size} = await fetchZSetRange(start, stop, requestKey)
+
+            if (
+                !isLoadAllRequestCurrent(requestId) ||
+                requestKeyData !== props.keyData ||
+                requestKey !== props.keyData.key
+            ) {
+                return
+            }
+
+            const appendItems = takeKeyDetailItemsWithinLimit(loadedItems.value.length, items)
+
+            latestSize = size
+            zsetTotalSize.value = latestSize
+            loadedItems.value = [...loadedItems.value, ...appendItems]
+
+            if (appendItems.length === 0) {
+                break
+            }
+        }
     } catch (error) {
-        ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadAllFail'))
+        if (
+            isLoadAllRequestCurrent(requestId) &&
+            requestKeyData === props.keyData &&
+            requestKey === props.keyData.key
+        ) {
+            ElMessage.error(error.message || t('keyDetailPanels.common.messages.loadAllFail'))
+        }
     } finally {
-        isLoadingAll.value = false
+        finishLoadAllRequest(requestId)
     }
 }
 
@@ -664,12 +737,12 @@ const handleLoadAll = async () => {
 watch(
     () => props.keyData,
     (nextKeyData) => {
+        invalidateLoadMoreRequest()
+        invalidateLoadAllRequest()
         loadedItems.value = Array.isArray(nextKeyData?.value)
             ? nextKeyData.value.map(normalizeZSetItem)
             : []
         zsetTotalSize.value = Number(nextKeyData?.size) || loadedItems.value.length
-        isLoadingMore.value = false
-        isLoadingAll.value = false
     },
     {immediate: true}
 )
@@ -683,7 +756,6 @@ watch(
     height: 100%;
     min-height: 0;
     flex-direction: column;
-    background: var(--el-bg-color);
 }
 
 /* 工具栏：左右分布，和 List/Set 面板保持一致的新增/搜索入口位置。 */

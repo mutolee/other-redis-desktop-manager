@@ -45,6 +45,10 @@ const props = defineProps({
         type: Number,
         default: 500
     },
+    width: {
+        type: Number,
+        default: 0
+    },
     maxContentLength: {
         type: Number,
         default: 1500
@@ -80,6 +84,7 @@ const contentText = computed(() => {
 
 // Tooltip 弹层样式：限制最大宽度，长内容超过后自动换行展示。
 const popperStyle = computed(() => ({
+    ...(props.width > 0 ? {width: `${props.width}px`} : {}),
     maxWidth: `${props.maxWidth}px`,
     whiteSpace: 'normal',
     overflowWrap: 'anywhere',
