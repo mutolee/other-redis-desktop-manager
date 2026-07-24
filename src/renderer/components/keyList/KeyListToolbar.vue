@@ -14,26 +14,34 @@
             />
         </el-tooltip>
 
-        <el-input
-            :model-value="searchText"
-            :placeholder="t('keyList.searchPlaceholder')"
-            clearable
-            size="default"
-            class="search-input"
-            @update:model-value="$emit('update:searchText', $event)"
-            @keyup.enter="$emit('submit-search')"
-        >
-            <template #suffix>
-                <!-- 搜索模式切换：勾选后按完整 Key 精准匹配，不勾选时按包含关系模糊匹配。 -->
-                <el-tooltip :content="t('keyList.exactSearch')" placement="bottom" :show-after="200">
-                    <el-checkbox
-                        :model-value="isExactSearch"
-                        class="exact-search-checkbox"
-                        @update:model-value="$emit('update:isExactSearch', $event)"
-                    />
-                </el-tooltip>
-            </template>
-        </el-input>
+        <!-- 原生容器控制搜索框自适应范围，避免 el-autocomplete 默认 width: 100% 挤压工具按钮。 -->
+        <div class="search-input-container">
+            <el-autocomplete
+                :model-value="searchText"
+                :placeholder="t('keyList.searchPlaceholder')"
+                :fetch-suggestions="querySearchHistory"
+                :trigger-on-focus="false"
+                :debounce="0"
+                hide-loading
+                popper-class="key-search-history-popper"
+                clearable
+                size="default"
+                class="search-input"
+                @update:model-value="$emit('update:searchText', $event)"
+                @keyup.enter="$emit('submit-search')"
+            >
+                <template #suffix>
+                    <!-- 搜索模式切换：勾选后按完整 Key 精准匹配，不勾选时按包含关系模糊匹配。 -->
+                    <el-tooltip :content="t('keyList.exactSearch')" placement="bottom" :show-after="200">
+                        <el-checkbox
+                            :model-value="isExactSearch"
+                            class="exact-search-checkbox"
+                            @update:model-value="$emit('update:isExactSearch', $event)"
+                        />
+                    </el-tooltip>
+                </template>
+            </el-autocomplete>
+        </div>
 
         <!-- 添加 Key 按钮：放在搜索框后方，作为创建流程的入口。 -->
         <el-tooltip :content="t('keyList.addKey')" placement="bottom">
@@ -147,8 +155,20 @@ import {
     Upload
 } from '@icon-park/vue-next'
 import {useI18n} from '../../i18n/index.js'
+import {getKeySearchSuggestions} from '../../utils/keySearchHistoryUtil.js'
 
 const {t} = useI18n()
+
+/**
+ * 根据输入内容返回本地搜索历史联想。
+ * callback 收到空数组时 Element Plus 不会展示下拉列表。
+ *
+ * @param {string} queryString 当前输入内容
+ * @param {(suggestions:Array<{value:string}>) => void} callback 自动补全结果回调
+ */
+const querySearchHistory = (queryString, callback) => {
+    callback(getKeySearchSuggestions(queryString))
+}
 
 defineProps({
     viewMode: {
@@ -208,27 +228,54 @@ defineEmits([
     background: var(--detail-header-bg-color);
 }
 
-/* 搜索框：占据主要可用宽度，同时限制最大宽度避免工具栏失衡。 */
-.toolbar .search-input {
-    flex: 1;
+/* 搜索框原生容器：根据工具栏剩余空间伸缩，最大260px，同时保留最小可用宽度。 */
+.search-input-container {
+    width: auto;
+    min-width: 120px;
     max-width: 260px;
+    flex: 1 1 180px;
+}
+
+/* 自动补全只铺满固定容器，不再直接参与工具栏 flex 尺寸计算。 */
+.toolbar .search-input {
+    --el-input-width: 100%;
+
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+}
+
+.toolbar .search-input :deep(.el-input) {
+    width: 100%;
+}
+
+/* 搜索历史悬浮层挂载到 body，可宽于180px输入框，长 Key 具有更多可读空间。 */
+:global(.key-search-history-popper) {
+    width: 320px !important;
+    max-width: calc(100vw - 24px);
 }
 
 /* 视图切换按钮：图标跟随按钮文字色，尺寸与工具栏内其他图标保持一致。 */
 .view-mode-btn {
     width: 32px;
     padding: 0;
+    flex-shrink: 0;
 }
 
 /* 添加 Key 按钮：保持普通图标按钮形态，不使用圆形外观。 */
 .add-key-btn {
     width: 32px;
     padding: 0;
+    flex-shrink: 0;
 }
 
 /* 刷新按钮：通过自动左边距推到工具栏最右端。 */
 .refresh-btn {
+    width: 32px;
+    height: 32px;
     margin-left: auto;
+    flex-shrink: 0;
 }
 
 /* 操作菜单按钮：跟随刷新按钮尺寸，作为列表级批量能力的统一入口。 */
@@ -236,6 +283,7 @@ defineEmits([
     width: 32px;
     height: 32px;
     padding: 0;
+    flex-shrink: 0;
 }
 
 .operation-menu-btn:hover,

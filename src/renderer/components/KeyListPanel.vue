@@ -157,6 +157,7 @@ import {getSelectedKeyRows} from '../utils/keyExportSelectionUtil.js'
 import {saveKeyExportData} from '../utils/keyExportUtil.js'
 import {readKeyImportFile} from '../utils/keyImportUtil.js'
 import {eventBus} from '../utils/eventBus.js'
+import {addKeySearchHistory} from '../utils/keySearchHistoryUtil.js'
 import {useKeyListDrawers} from '../composables/useKeyListDrawers.js'
 import {useKeyListSelection} from '../composables/useKeyListSelection.js'
 import {useConnectionConfigsStore} from '../stores/modules/connectionConfigsStore.js'
@@ -1129,6 +1130,12 @@ const handleSubmitSearch = async () => {
     }
 
     const keyword = searchText.value.trim()
+
+    // 只记录真实提交的非空关键词；重复关键词会移动到历史最前方，最多保留30条。
+    if (keyword) {
+        addKeySearchHistory(keyword)
+    }
+
     activeSearchMode.value = keyword
         ? (isExactSearch.value ? 'exact' : 'fuzzy')
         : 'all'
