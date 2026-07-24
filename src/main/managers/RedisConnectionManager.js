@@ -384,6 +384,12 @@ class RedisConnectionManager {
 
     /**
      * SCAN 扫描 key 列表（带类型）
+     * 每次调用只推进一轮游标，COUNT 仅表示本轮建议扫描量，不作为必须凑满的结果数量。
+     * @param {string|number} connectionId - 当前连接 ID
+     * @param {string|number} cursor - Redis SCAN 游标
+     * @param {string} pattern - Redis MATCH 模式
+     * @param {number} count - 本轮建议扫描数量
+     * @returns {Promise<{success:boolean,data?:Object,error?:string}>} 当前批次 Key、下一游标与分页状态
      */
     async scanKeys(connectionId, cursor = '0', pattern = '*', count = DEFAULT_PAGE_SIZE) {
         try {
@@ -393,25 +399,16 @@ class RedisConnectionManager {
             }
             const normalizedCount = normalizePageCount(count)
             const normalizedPattern = String(pattern || '*')
-            const shouldFillSearchPage = normalizedPattern !== '*'
-            let nextCursor = String(cursor ?? '0')
-            const keySet = new Set()
+            const currentCursor = String(cursor ?? '0')
 
-            do {
-                // 搜索模式下需要连续推进游标，直到攒够一页命中结果；否则第一批未命中会让前端误以为没有数据。
-                const result = await this.runWithCommandTimeout(
-                    connection.config,
-                    () => connection.redis.call('SCAN', nextCursor, 'MATCH', normalizedPattern, 'COUNT', normalizedCount),
-                    'SCAN'
-                )
-                nextCursor = String(result[0])
-
-                for (const key of result[1] || []) {
-                    keySet.add(key)
-                }
-            } while (shouldFillSearchPage && nextCursor !== '0' && keySet.size < normalizedCount)
-
-            const keys = Array.from(keySet)
+            // 单次 IPC 只执行一轮 SCAN，避免稀疏搜索在主进程中串行扫描整个数据库。
+            const result = await this.runWithCommandTimeout(
+                connection.config,
+                () => connection.redis.call('SCAN', currentCursor, 'MATCH', normalizedPattern, 'COUNT', normalizedCount),
+                'SCAN'
+            )
+            const nextCursor = String(result[0])
+            const keys = Array.from(new Set(result[1] || []))
             const keyList = []
             if (keys.length > 0) {
                 // 批量 pipeline 获取类型，避免逐个 type 调用增加网络开销
@@ -426,6 +423,37 @@ class RedisConnectionManager {
             return {success: true, data: {cursor: nextCursor, keys: keyList, hasMore: nextCursor !== '0'}}
         } catch (error) {
             return {success: false, error: error.message || tMain('redis.scanFail')}
+        }
+    }
+
+    /**
+     * 按完整 Key 名精确查询 Key 及其类型。
+     * 精确查询直接使用 TYPE，避免通过 SCAN MATCH 遍历整个数据库。
+     * @param {string|number} connectionId - 当前连接 ID
+     * @param {string} key - 待查询的完整 Key 名
+     * @returns {Promise<{success:boolean,data?:Object,error?:string}>} 单条精确查询结果
+     */
+    async findExactKey(connectionId, key) {
+        try {
+            const connection = this.getActiveConnection(connectionId)
+            if (!connection || connection.status !== 'connected') {
+                return {success: false, error: tMain('redis.connectionMissingOrDisconnected')}
+            }
+
+            const normalizedKey = String(key ?? '')
+            const type = await this.runWithCommandTimeout(
+                connection.config,
+                () => connection.redis.call('TYPE', normalizedKey),
+                'TYPE'
+            )
+            const normalizedType = String(type || 'none')
+            const keys = normalizedType === 'none'
+                ? []
+                : [{key: normalizedKey, type: normalizedType}]
+
+            return {success: true, data: {cursor: '0', keys, hasMore: false}}
+        } catch (error) {
+            return {success: false, error: error.message || tMain('redis.commandFail')}
         }
     }
 

@@ -255,6 +255,9 @@ const isExactSearch = ref(false)
 // 当前生效的服务端搜索模式：只在按下回车后更新，用于后续分页继续沿用同一套搜索条件。
 const activeSearchPattern = ref('*')
 
+// 当前生效的搜索类型：区分普通列表、SCAN 模糊搜索和 TYPE 精确搜索。
+const activeSearchMode = ref('all')
+
 // 当前视图模式：支持树形视图和扁平列表视图。
 const viewMode = ref('tree')
 
@@ -289,6 +292,9 @@ const MAX_TREE_DEPTH = 4
 // 虚拟列表单行高度：与当前行内边距和字体大小匹配，保证滚动定位稳定。
 const ROW_HEIGHT = 40
 
+// 首次模糊搜索使用更大的 SCAN 建议量，降低第一批没有任何命中结果的概率。
+const FIRST_FUZZY_SEARCH_SCAN_COUNT = 10000
+
 // 视图切换按钮的提示文案，随着当前模式动态变化。
 const viewModeTooltip = computed(() =>
     viewMode.value === 'tree' ? t('keyList.listView') : t('keyList.treeView')
@@ -298,7 +304,7 @@ const viewModeTooltip = computed(() =>
 const viewModeIcon = computed(() => viewMode.value === 'tree' ? TreeList : ListTwo)
 
 // 当前是否处于服务端搜索结果模式：只要生效模式不是全量扫描，就说明列表展示的是某次搜索结果。
-const isSearchResultMode = computed(() => activeSearchPattern.value !== '*')
+const isSearchResultMode = computed(() => activeSearchMode.value !== 'all')
 
 // 当前打开连接配置：树形分隔符、抽屉标题和关闭连接操作都依赖同一份连接上下文。
 const currentConnectionConfig = computed(() =>
@@ -963,6 +969,7 @@ const resetKeyList = () => {
     searchText.value = ''
     isExactSearch.value = false
     activeSearchPattern.value = '*'
+    activeSearchMode.value = 'all'
     loadKeys(true)
 }
 
@@ -1107,9 +1114,12 @@ const handleSubmitSearch = async () => {
     }
 
     const keyword = searchText.value.trim()
-    activeSearchPattern.value = keyword
-        ? (isExactSearch.value ? keyword : `*${keyword}*`)
-        : '*'
+    activeSearchMode.value = keyword
+        ? (isExactSearch.value ? 'exact' : 'fuzzy')
+        : 'all'
+    activeSearchPattern.value = activeSearchMode.value === 'fuzzy'
+        ? `*${keyword}*`
+        : (keyword || '*')
 
     try {
         isSearchingKeys.value = true
@@ -1142,15 +1152,20 @@ const loadKeys = async (reset = false, options = {}) => {
     }
 
     try {
-        // 调用后端 SCAN 能力，按当前搜索条件与游标继续获取 Key 列表。
-        const response = await window.api.redis.scanKeys(
-            props.tabId,
-            reset ? '0' : cursor.value,
-            activeSearchPattern.value,
-            currentScanCount.value
-        )
+        // 精确搜索使用 TYPE；普通列表和模糊搜索继续按游标执行单轮 SCAN。
+        const response = activeSearchMode.value === 'exact'
+            ? await window.api.redis.findExactKey(props.tabId, activeSearchPattern.value)
+            : await window.api.redis.scanKeys(
+                props.tabId,
+                reset ? '0' : cursor.value,
+                activeSearchPattern.value,
+                reset && activeSearchMode.value === 'fuzzy'
+                    ? FIRST_FUZZY_SEARCH_SCAN_COUNT
+                    : currentScanCount.value
+            )
 
         if (!response.success) {
+            ElMessage.error(`${t('keyList.messages.loadFail')}: ${response.error || t('common.unknownError')}`)
             return
         }
 

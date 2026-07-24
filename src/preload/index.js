@@ -64,6 +64,8 @@ contextBridge.exposeInMainWorld('api', {
         getServerInfo: (connectionId) => ipcRenderer.invoke('redis:get-server-info', connectionId),
         // SCAN 扫描 Key 列表
         scanKeys: (connectionId, cursor, pattern, count) => ipcRenderer.invoke('redis:scan-keys', connectionId, cursor, pattern, count),
+        // TYPE 按完整 Key 名精确查询
+        findExactKey: (connectionId, key) => ipcRenderer.invoke('redis:find-exact-key', connectionId, key),
         // 按 pattern 预览 Key 列表
         scanKeysByPattern: (connectionId, pattern, options) => ipcRenderer.invoke('redis:scan-keys-by-pattern', connectionId, pattern, options),
         // 批量删除指定 Key
