@@ -10,7 +10,8 @@
  * @returns {Uint8Array|null} 还原后的字节数组，解析失败时返回 null。
  */
 export const decodeBase64ToBytes = (base64Text) => {
-    if (typeof base64Text !== 'string') {
+    // Empty raw bytes mean that the caller has no Redis byte payload; use the text fallback.
+    if (typeof base64Text !== 'string' || base64Text.length === 0) {
         return null
     }
 

@@ -120,6 +120,18 @@ textarea::-webkit-scrollbar-thumb:hover,
 }
 
 /* Section: Element Plus 全局覆盖 */
+/* 加载更多禁用态：统一 Key 列表和详情页按钮的文字亮度，避免主题色的 light-5 变量过亮。 */
+.el-button.load-more-btn.el-button--primary.is-plain.is-disabled,
+.el-button.load-more-btn.el-button--primary.is-plain.is-disabled:hover,
+.el-button.load-more-btn.el-button--primary.is-plain.is-disabled:focus,
+.el-button.load-more-btn.el-button--primary.is-plain.is-disabled:active {
+    color: color-mix(
+        in srgb,
+        var(--el-color-primary) 45%,
+        var(--el-bg-color-overlay)
+    ) !important;
+}
+
 /* Dialog 主体：统一标题栏与内容区之间的顶部间距，保留其余方向的默认 padding。 */
 .el-dialog__body {
     padding-top: 20px !important;

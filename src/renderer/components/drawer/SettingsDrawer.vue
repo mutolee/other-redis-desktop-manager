@@ -211,7 +211,9 @@
                                         <span>{{ t('settings.developerMode') }}</span>
                                         <span class="desc">
                                             {{ t('settings.developerModeDesc') }}
-                                            <span v-if="developerMode">{{ t('settings.developerShortcut') }}</span>
+                                            <span v-if="developerMode">
+                                                {{ t('settings.developerShortcut', {value: developerShortcut}) }}
+                                            </span>
                                         </span>
                                     </div>
                                     <el-switch v-model="developerMode" @change="handleDeveloperModeChange"/>
@@ -279,6 +281,11 @@ const appUpdateStore = useAppUpdateStore()
 
 // 国际化文案：设置抽屉是语言切换入口，需要优先接入 i18n。
 const {t} = useI18n()
+
+// 开发者工具快捷键：macOS 使用系统常见组合，其他平台保持 Ctrl + Shift + I。
+const developerShortcut = window.api.appInfo.getPlatform() === 'darwin'
+    ? 'Option + Command + I'
+    : 'Ctrl + Shift + I'
 
 // 记录最后点击位置，用于 View Transitions 动画圆心
 let lastClickX = 0

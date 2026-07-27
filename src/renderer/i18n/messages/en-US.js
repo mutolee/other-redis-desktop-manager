@@ -137,7 +137,7 @@ export default {
             resetSettingsDesc: 'Restore all settings to default values',
             developerMode: 'Developer Mode',
             developerModeDesc: 'Enable developer mode to show more debugging options.',
-            developerShortcut: 'Shortcut: Ctrl/Command + Shift + I',
+            developerShortcut: 'Shortcut: {value}',
             versionInfo: 'Version',
             versionCheck: 'Check for Updates',
             update: {
@@ -551,6 +551,7 @@ export default {
             listView: 'List View',
             treeView: 'Tree View',
             noMatchedKeys: 'No matching Keys found',
+            noMatchedKeysYet: 'No matching Keys found in the current scan. Click "Load More" to continue searching',
             noData: 'No data',
             loadMore: 'Load More',
             loadAll: 'Load All',

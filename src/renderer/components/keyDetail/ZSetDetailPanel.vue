@@ -515,11 +515,26 @@ const handleSaveItem = async () => {
             await runRedisCommand('ZREM', [props.keyData.key, originalMember])
         }
 
+        // Keep the newly written member in the local list so it can be viewed immediately.
+        const nextItem = normalizeZSetItem({member, score})
+        const nextItems = [...loadedItems.value]
+        const existingIndex = nextItems.findIndex((item) => item.member === (isMemberRenamed ? originalMember : member))
+
+        if (existingIndex >= 0) {
+            nextItems[existingIndex] = nextItem
+        } else {
+            nextItems.push(nextItem)
+        }
+
+        loadedItems.value = nextItems.sort((left, right) => Number(right.score) - Number(left.score))
+        if (!isEditMode.value) {
+            zsetTotalSize.value += 1
+        }
+
         itemEditorVisible.value = false
         ElMessage.success(isEditMode.value
             ? t('keyDetailPanels.common.messages.memberUpdated')
             : t('keyDetailPanels.common.messages.memberAdded'))
-        emit('refresh')
     } catch (error) {
         ElMessage.error(error.message || t('keyDetailPanels.zset.messages.saveFail'))
     } finally {

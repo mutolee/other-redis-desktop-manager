@@ -137,7 +137,7 @@ export default {
             resetSettingsDesc: '将所有设置恢复为默认值',
             developerMode: '开发者模式',
             developerModeDesc: '开启开发者模式，显示更多调试信息。',
-            developerShortcut: '快捷键：Ctrl/Command + Shift + I',
+            developerShortcut: '快捷键：{value}',
             versionInfo: '版本信息',
             versionCheck: '更新检查',
             update: {
@@ -551,6 +551,7 @@ export default {
             listView: '列表视图',
             treeView: '树形视图',
             noMatchedKeys: '未找到匹配的 Key',
+            noMatchedKeysYet: '当前扫描范围内未找到匹配的 Key，请点击“加载更多”继续搜索',
             noData: '暂无数据',
             loadMore: '加载更多',
             loadAll: '加载全部',

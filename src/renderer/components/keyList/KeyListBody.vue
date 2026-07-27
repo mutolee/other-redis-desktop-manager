@@ -337,11 +337,26 @@ const getRowClass = (row) => ({
     color: var(--el-text-color-secondary);
 }
 
-/* 空态容器：保证无数据时仍然维持居中展示。 */
+/* 空态容器：保持居中展示，并为较长的搜索提示预留两侧空间。 */
 .empty-state {
     display: flex;
     height: 100%;
+    box-sizing: border-box;
+    padding: 0 24px;
     align-items: center;
     justify-content: center;
+}
+
+/* 空态文案：限制最大宽度并允许换行，避免提示文字贴住列表区域边缘。 */
+.empty-state :deep(.el-empty) {
+    width: 100%;
+}
+
+.empty-state :deep(.el-empty__description) {
+    max-width: 520px;
+    margin: 20px auto 0;
+    line-height: 1.6;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 </style>

@@ -3,14 +3,12 @@
  * 控制开发者工具快捷键的启用状态，供设置页的开发模式开关调用。
  */
 import electron from 'electron'
+import {DEVTOOLS_SHORTCUT} from '../../utils/developerShortcut.js'
 import {createLogger} from '../../utils/logger.js'
 import {redisCommandHistoryService} from '../../redis/redisCommandHistoryService.js'
 
 const {globalShortcut, ipcMain} = electron
 const log = createLogger('develop-ipc')
-
-// Electron 默认打开开发者工具的快捷键。
-const DEVTOOLS_SHORTCUT = 'CommandOrControl+Shift+I'
 
 /**
  * 启用开发者工具快捷键。

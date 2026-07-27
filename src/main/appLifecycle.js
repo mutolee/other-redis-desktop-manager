@@ -6,6 +6,7 @@ import electron from 'electron'
 import {registerAllIpcHandlers} from './ipcHandlers/ipcMain.js'
 import {redisConnectionManager} from './managers/RedisConnectionManager.js'
 import {destroyTrayManager} from './managers/TrayManager.js'
+import {DEVTOOLS_SHORTCUT} from './utils/developerShortcut.js'
 import {createLogger} from './utils/logger.js'
 import {getMainWindow} from './windows/mainWindow.js'
 import {createSplashWindow} from './windows/splashWindow.js'
@@ -88,7 +89,7 @@ const releaseAppResourcesBeforeExit = () => {
  * 开发者模式开启后会由 developIpcHandler 重新接管该快捷键。
  */
 const registerDefaultShortcutGuards = () => {
-    globalShortcut.register('CommandOrControl+Shift+I', () => {
+    globalShortcut.register(DEVTOOLS_SHORTCUT, () => {
         // 默认拦截开发者工具快捷键，避免生产模式下误打开 DevTools。
     })
 }

@@ -23,7 +23,7 @@
             <el-button
                 type="primary"
                 plain
-                class="load-btn"
+                class="load-btn load-more-btn"
                 :loading="loadingMore"
                 :disabled="!hasMore || loadingAll"
                 @click="$emit('load-more')"

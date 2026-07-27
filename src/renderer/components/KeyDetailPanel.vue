@@ -919,9 +919,13 @@ html.dark .key-detail-panel {
 
 /* TTL 提交按钮：常驻展示，只有 TTL 草稿变化且未执行其他头部操作时才允许点击。 */
 .ttl-confirm-btn {
-    --el-button-disabled-bg-color: color-mix(in srgb, var(--el-color-primary) 70%, #FFFFFF);
-    --el-button-disabled-border-color: color-mix(in srgb, var(--el-color-primary) 70%, #FFFFFF);
-    --el-button-disabled-text-color: rgba(255, 255, 255, 0.92);
+    --el-button-disabled-bg-color: var(--el-color-primary-light-9);
+    --el-button-disabled-border-color: var(--el-color-primary-light-8);
+    --el-button-disabled-text-color: color-mix(
+        in srgb,
+        var(--el-color-primary) 45%,
+        var(--el-bg-color-overlay)
+    );
 
     width: 24px;
     height: 24px;

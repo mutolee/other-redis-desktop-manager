@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('api', {
      * 提供启动页展示所需的版本信息。
      */
     appInfo: {
+        // 获取当前操作系统平台，用于 renderer 展示平台相关文案
+        getPlatform: () => process.platform,
         // 获取应用程序版本号
         getVersion: () => ipcRenderer.invoke('appInfo:get-version'),
         // 获取 Chromium 版本号

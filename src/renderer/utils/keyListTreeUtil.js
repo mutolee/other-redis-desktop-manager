@@ -25,6 +25,50 @@ export const normalizeKeySeparator = (keySeparator = ':') => {
 }
 
 /**
+ * 按 Key 名称进行稳定的升序比较。
+ * 数字片段按数字语义比较，避免 `key10` 排在 `key2` 前面。
+ * @param {string} left 左侧名称
+ * @param {string} right 右侧名称
+ * @returns {number} 排序比较结果
+ */
+export const compareKeyNames = (left, right) => {
+    const leftName = String(left ?? '')
+    const rightName = String(right ?? '')
+    const result = leftName.localeCompare(rightName, undefined, {
+        numeric: true,
+        sensitivity: 'base'
+    })
+
+    return result || leftName.localeCompare(rightName)
+}
+
+/**
+ * 对平铺 Key 行按完整 Key 名称升序排序。
+ * 返回新数组，避免改变扫描缓存的原始顺序。
+ * @param {Array<{key: string}>} rows 平铺 Key 行
+ * @returns {Array<{key: string}>} 排序后的新数组
+ */
+export const sortKeyRowsByName = (rows = []) => {
+    return [...rows].sort((left, right) => compareKeyNames(left.key, right.key))
+}
+
+/**
+ * 对同级树节点排序：目录优先，目录和 Key 各自按显示名称升序排列。
+ * @param {Array<{displayKey: string, isDirectory: boolean, nodeId: string}>} nodes 同级树节点
+ * @returns {Array<Object>} 排序后的新数组
+ */
+const sortTreeSiblings = (nodes = []) => {
+    return [...nodes].sort((left, right) => {
+        if (left.isDirectory !== right.isDirectory) {
+            return left.isDirectory ? -1 : 1
+        }
+
+        return compareKeyNames(left.displayKey, right.displayKey)
+            || compareKeyNames(left.nodeId, right.nodeId)
+    })
+}
+
+/**
  * 构建树形节点映射。
  * 超过最大层级的 Key 会把剩余部分合并到最后一层节点中，避免树结构无限变深。
  * @param {Array<{key: string, type: string}>} flatKeys 扁平 Key 列表
@@ -113,7 +157,7 @@ export const flattenExpandedTreeNodes = (nodes, isExpanded) => {
      * @param {string} parentKey 当前父节点标识
      */
     const appendVisibleChildren = (parentKey) => {
-        const children = childrenMap.get(parentKey) ?? []
+        const children = sortTreeSiblings(childrenMap.get(parentKey) ?? [])
 
         for (const child of children) {
             result.push(child)

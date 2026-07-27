@@ -89,7 +89,7 @@
             <el-button
                 type="primary"
                 plain
-                class="load-btn"
+                class="load-btn load-more-btn"
                 :loading="isLoadingMore"
                 :disabled="!hasMore || isLoadingAll || isInitialLoading || isKeyListBusy"
                 @click="loadKeys(false)"
@@ -151,7 +151,7 @@ import {ElMessage, ElMessageBox} from 'element-plus'
 import {ListTwo, TreeList} from '@icon-park/vue-next'
 import {storeToRefs} from 'pinia'
 import {useI18n} from '../i18n/index.js'
-import {buildKeyTreeMap, flattenExpandedTreeNodes, isAncestorDirectoryKey, normalizeKeySeparator} from '../utils/keyListTreeUtil.js'
+import {buildKeyTreeMap, flattenExpandedTreeNodes, isAncestorDirectoryKey, normalizeKeySeparator, sortKeyRowsByName} from '../utils/keyListTreeUtil.js'
 import {getSelectedKeyRows} from '../utils/keyExportSelectionUtil.js'
 import {saveKeyExportData} from '../utils/keyExportUtil.js'
 import {readKeyImportFile} from '../utils/keyImportUtil.js'
@@ -308,8 +308,8 @@ const ROW_HEIGHT = 40
 // 首次模糊搜索使用更大的 SCAN 建议量，降低第一批没有任何命中结果的概率。
 const FIRST_FUZZY_SEARCH_SCAN_COUNT = 10000
 
-// “加载全部”每轮至少建议扫描 1000 个 Key，兼顾逐批展示速度和超大列表的响应式重建成本。
-const LOAD_ALL_SCAN_COUNT = 1000
+// “加载全部”每轮至少建议扫描 10000 个 Key，减少超大列表的请求轮数。
+const LOAD_ALL_SCAN_COUNT = 10000
 
 // 视图切换按钮的提示文案，随着当前模式动态变化。
 const viewModeTooltip = computed(() =>
@@ -399,10 +399,18 @@ const currentScanCount = computed(() => {
     return Number.isFinite(scanCount) && scanCount > 0 ? scanCount : 100
 })
 
-// 空态说明文案：区分“没有任何数据”和“没有匹配结果”。
-const emptyDescription = computed(() =>
-    isSearchResultMode.value ? t('keyList.noMatchedKeys') : t('keyList.noData')
-)
+// 空态说明文案：模糊搜索尚未扫描完时，提示用户继续加载，避免误以为整个数据库没有匹配项。
+const emptyDescription = computed(() => {
+    if (!isSearchResultMode.value) {
+        return t('keyList.noData')
+    }
+
+    if (activeSearchMode.value === 'fuzzy' && hasMore.value) {
+        return t('keyList.noMatchedKeysYet')
+    }
+
+    return t('keyList.noMatchedKeys')
+})
 
 // 列表空态显示条件：仅在非初始加载且没有任何可见数据时展示。
 const isEmptyStateVisible = computed(() => !isInitialLoading.value && visibleRows.value.length === 0)
@@ -447,7 +455,7 @@ const treeMap = computed(() => buildKeyTreeMap(allScannedKeys.value, MAX_TREE_DE
 const treeNodes = computed(() => Array.from(treeMap.value.values()))
 
 // 列表模式下的扁平数据，将所有 Key 直接映射成可渲染行。
-const listRows = computed(() =>
+const listRows = computed(() => sortKeyRowsByName(
     allScannedKeys.value.map((item) => ({
         nodeId: `key:${item.key}`,
         key: item.key,
@@ -458,7 +466,7 @@ const listRows = computed(() =>
         type: item.type,
         typeLoading: Boolean(item.typeLoading)
     }))
-)
+))
 
 /**
  * 判断某个目录节点是否处于展开状态。
