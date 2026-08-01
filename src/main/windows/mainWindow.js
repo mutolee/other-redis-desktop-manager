@@ -107,8 +107,9 @@ class MainWindow {
             return
         }
 
-        // macOS 被 app.hide() 隐藏后，仅 BrowserWindow.show() 可能无法重新激活应用，需要先唤回应用本身。
+        // macOS 隐藏到托盘后，需要先恢复应用和 Dock 图标，再显示窗口。
         if (process.platform === 'darwin') {
+            app.dock?.show()
             app.show()
         }
 
@@ -172,6 +173,12 @@ class MainWindow {
         }
 
         this.win.hide()
+
+        // macOS 同时隐藏应用和 Dock 图标，保留托盘作为唯一的恢复入口。
+        if (process.platform === 'darwin') {
+            app.dock?.hide()
+            app.hide()
+        }
     }
 
     /**
