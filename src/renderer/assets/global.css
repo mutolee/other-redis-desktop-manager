@@ -48,6 +48,7 @@ body {
     overflow: hidden;
 }
 
+/* 主窗口首屏加载层：在 Vue 挂载前遮住 Chromium 空白画面，挂载后由 Vue 自动替换。 */
 /* 表单与可编辑内容：全局禁选后，这些输入区域仍允许选择、复制和编辑文本。 */
 input,
 textarea,

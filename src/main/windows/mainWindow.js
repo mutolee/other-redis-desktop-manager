@@ -57,6 +57,7 @@ class MainWindow {
             autoHideMenuBar: true,
             frame: false,
             center: true,
+            backgroundColor: '#151719',
             webPreferences: createSecureWebPreferences()
         })
 
