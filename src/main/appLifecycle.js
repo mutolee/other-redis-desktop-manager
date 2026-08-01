@@ -9,7 +9,7 @@ import {destroyTrayManager} from './managers/TrayManager.js'
 import {DEVTOOLS_SHORTCUT} from './utils/developerShortcut.js'
 import {createLogger} from './utils/logger.js'
 import {getMainWindow} from './windows/mainWindow.js'
-import {createSplashWindow} from './windows/splashWindow.js'
+import {createSplashWindow, getSplashWindow} from './windows/splashWindow.js'
 
 const {app, globalShortcut} = electron
 const log = createLogger('main')
@@ -125,6 +125,7 @@ const initializeApp = async () => {
 const cleanupAppResourcesBeforeQuit = (event) => {
     log.info('应用准备退出')
     isAppQuitting = true
+    getMainWindow()?.prepareForQuit()
 
     if (isResourceCleanupCompleted) {
         return
@@ -139,7 +140,11 @@ const cleanupAppResourcesBeforeQuit = (event) => {
 
     isResourceCleanupRunning = true
 
+    const splashWindow = getSplashWindow()
+    splashWindow?.prepareForQuit()
+    const splashClosePromise = splashWindow?.close() || Promise.resolve()
     const cleanupPromise = Promise.all([
+        splashClosePromise,
         redisConnectionManager.closeAllRedisConnections(),
         redisConnectionManager.closeCommandHistory()
     ])

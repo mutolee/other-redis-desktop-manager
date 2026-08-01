@@ -6,9 +6,10 @@ import electron from 'electron'
 import {attachRendererDiagnostics, createSecureWebPreferences, loadRendererRoute} from '../managers/WindowsManager.js'
 import {createTrayManager} from '../managers/TrayManager.js'
 import {createMainWindow} from './mainWindow.js'
+import {releaseSplashWindow, reserveSplashWindow} from './windowState.js'
 import {createLogger} from '../utils/logger.js'
 
-const {BrowserWindow} = electron
+const {app, BrowserWindow} = electron
 const log = createLogger('splash-window')
 
 /**
@@ -27,6 +28,10 @@ class SplashWindow {
     constructor() {
         // 启动窗口 BrowserWindow 实例：创建主窗口后会主动关闭。
         this.win = null
+        this.startupTimer = null
+        this.startupCancelled = false
+        this.isTransitioningToMain = false
+        this.isAppQuitting = false
         this.createWindow()
     }
 
@@ -51,8 +56,24 @@ class SplashWindow {
 
         // 启动窗口关闭后释放单例引用，避免后续 activate 时拿到已销毁实例。
         this.win.on('closed', () => {
+            const shouldQuitApplication = !this.isTransitioningToMain && !this.isAppQuitting
+
+            if (!this.isTransitioningToMain) {
+                this.startupCancelled = true
+            }
+
+            if (this.startupTimer) {
+                clearTimeout(this.startupTimer)
+                this.startupTimer = null
+            }
+
             this.win = null
             splashWindowInstance = null
+            releaseSplashWindow()
+
+            if (shouldQuitApplication) {
+                app.quit()
+            }
         })
 
         this.loadContent()
@@ -64,17 +85,39 @@ class SplashWindow {
     async loadContent() {
         await loadRendererRoute(this.win, '#/splash')
 
+        if (this.startupCancelled || !this.win) {
+            return
+        }
+
         // 启动屏只承担视觉过渡；延迟结束后进入主窗口创建流程。
-        setTimeout(() => {
+        this.startupTimer = setTimeout(async () => {
+            this.startupTimer = null
+
+            if (this.startupCancelled || !this.win) {
+                return
+            }
+
+            this.isTransitioningToMain = true
+
             try {
-                createMainWindow()
+                // 先等待 Splash 完全销毁，再创建 Main，保证两个 BrowserWindow 不会同时存在。
+                await this.close(true)
+
+                if (this.startupCancelled) {
+                    return
+                }
+
+                const mainWindow = createMainWindow()
+
+                if (!mainWindow) {
+                    return
+                }
                 // 托盘必须等主窗口创建后再注册，避免 splash 期间点击托盘提前唤出主窗口。
                 createTrayManager()
             } catch (error) {
                 log.error('启动主窗口失败', error)
             } finally {
-                // 无论主窗口是否创建成功，都关闭启动屏，避免透明窗口残留。
-                this.close()
+                this.isTransitioningToMain = false
             }
         }, getSplashDelay())
     }
@@ -82,8 +125,50 @@ class SplashWindow {
     /**
      * 关闭启动窗口。
      */
-    close() {
-        this.win?.close()
+    close(isTransition = false) {
+        if (!isTransition) {
+            this.startupCancelled = true
+        }
+
+        if (this.startupTimer) {
+            clearTimeout(this.startupTimer)
+            this.startupTimer = null
+        }
+
+        const window = this.win
+
+        if (!window || window.isDestroyed()) {
+            this.win = null
+            splashWindowInstance = null
+            releaseSplashWindow()
+            return Promise.resolve()
+        }
+
+        return new Promise((resolve) => {
+            let settled = false
+            const finish = () => {
+                if (settled) {
+                    return
+                }
+
+                settled = true
+                resolve()
+            }
+
+            window.once('closed', finish)
+            window.close()
+
+            if (window.isDestroyed()) {
+                finish()
+            }
+        })
+    }
+
+    /**
+     * 标记 Splash 正在随应用退出流程关闭，避免 closed 事件再次触发 app.quit。
+     */
+    prepareForQuit() {
+        this.isAppQuitting = true
     }
 }
 
@@ -93,12 +178,30 @@ let splashWindowInstance = null
 /**
  * 创建启动窗口实例。
  *
- * @returns {SplashWindow} 启动窗口管理实例
+ * @returns {SplashWindow|null} 启动窗口管理实例，Main 存在时返回 null
  */
 export const createSplashWindow = () => {
-    if (!splashWindowInstance) {
+    if (splashWindowInstance) {
+        return splashWindowInstance
+    }
+
+    if (!reserveSplashWindow()) {
+        return null
+    }
+
+    try {
         splashWindowInstance = new SplashWindow()
+    } catch (error) {
+        releaseSplashWindow()
+        throw error
     }
 
     return splashWindowInstance
 }
+
+/**
+ * 获取当前 Splash 窗口管理实例。
+ *
+ * @returns {SplashWindow|null} 当前 Splash 窗口实例
+ */
+export const getSplashWindow = () => splashWindowInstance

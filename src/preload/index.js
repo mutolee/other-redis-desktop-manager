@@ -46,7 +46,21 @@ contextBridge.exposeInMainWorld('api', {
         quit: () => ipcRenderer.invoke('mainWin:quit'),
         reload: () => ipcRenderer.invoke('mainWin:reload'),
         setTitle: (title) => ipcRenderer.invoke('mainWin:setTitle', title),
-        openExternal: (url) => ipcRenderer.invoke('mainWin:open-external', url)
+        openExternal: (url) => ipcRenderer.invoke('mainWin:open-external', url),
+        // 监听 macOS Command+W 等原生关闭请求，复用 renderer 中的关闭设置。
+        onCloseRequested: (callback) => {
+            if (typeof callback !== 'function') {
+                return () => {
+                }
+            }
+
+            const listener = () => callback()
+            ipcRenderer.on('mainWin:close-requested', listener)
+
+            return () => {
+                ipcRenderer.removeListener('mainWin:close-requested', listener)
+            }
+        }
     },
 
     /**

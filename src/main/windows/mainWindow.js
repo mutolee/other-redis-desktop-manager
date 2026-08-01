@@ -4,6 +4,7 @@
  */
 import electron from 'electron'
 import {attachRendererDiagnostics, createSecureWebPreferences, loadRendererRoute, loadVueDevToolsInDevelopment} from '../managers/WindowsManager.js'
+import {releaseMainWindow, reserveMainWindow} from './windowState.js'
 
 const {app, BrowserWindow, screen} = electron
 
@@ -36,6 +37,8 @@ class MainWindow {
     constructor() {
         // 主窗口 BrowserWindow 实例，IPC 和托盘模块会通过 getMainWindow() 间接访问。
         this.win = null
+        // 原生关闭请求统一转交 renderer 关闭流程，真正退出应用时才允许 BrowserWindow 销毁。
+        this.allowClose = false
         this.createWindow()
     }
 
@@ -68,6 +71,17 @@ class MainWindow {
         this.win.on('closed', () => {
             this.win = null
             mainWindowInstance = null
+            releaseMainWindow()
+        })
+
+        // Command+W 等原生关闭动作与自定义标题栏使用同一套关闭行为。
+        this.win.on('close', (event) => {
+            if (this.allowClose || this.win?.webContents.isDestroyed()) {
+                return
+            }
+
+            event.preventDefault()
+            this.win?.webContents.send('mainWin:close-requested')
         })
 
         this.loadContent()
@@ -142,6 +156,13 @@ class MainWindow {
     }
 
     /**
+     * 标记主窗口允许随应用退出流程销毁。
+     */
+    prepareForQuit() {
+        this.allowClose = true
+    }
+
+    /**
      * 隐藏主窗口。
      * 当前应用使用托盘常驻模式，隐藏后可从托盘重新显示。
      */
@@ -158,6 +179,7 @@ class MainWindow {
      * app.quit() 会触发主进程统一退出清理逻辑。
      */
     quit() {
+        this.prepareForQuit()
         app.quit()
     }
 
@@ -184,11 +206,22 @@ let mainWindowInstance = null
 /**
  * 创建主窗口实例。
  *
- * @returns {MainWindow} 主窗口管理实例
+ * @returns {MainWindow|null} 主窗口管理实例，Splash 存在时返回 null
  */
 export const createMainWindow = () => {
-    if (!mainWindowInstance) {
+    if (mainWindowInstance) {
+        return mainWindowInstance
+    }
+
+    if (!reserveMainWindow()) {
+        return null
+    }
+
+    try {
         mainWindowInstance = new MainWindow()
+    } catch (error) {
+        releaseMainWindow()
+        throw error
     }
 
     return mainWindowInstance

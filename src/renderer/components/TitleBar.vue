@@ -111,6 +111,7 @@ import {useI18n} from "../i18n/index.js";
 const closeConfirmDialogVisible = ref(false)
 const showSettingsDrawerVisible = ref(false)
 const showCommandHistoryDrawerVisible = ref(false)
+let removeNativeCloseRequestListener = null
 
 // 国际化文案读取函数：驱动标题栏 tooltip 文案。
 const {t} = useI18n()
@@ -141,6 +142,7 @@ watch(developerMode, (enabled) => {
 onMounted(() => {
     // 监听全局打开设置事件，允许其他组件唤起设置抽屉。
     eventBus.on('open-setting', handleOpenSettingEvent)
+    removeNativeCloseRequestListener = window.api?.mainWin.onCloseRequested(onClose)
 
     // 初始化已持久化的主题与主题色，保证标题栏首次渲染时状态正确。
     setTheme(theme.value)
@@ -152,6 +154,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
     // 释放标题栏注册的全局事件监听，避免组件重建后重复打开设置抽屉。
     eventBus.off('open-setting', handleOpenSettingEvent)
+    removeNativeCloseRequestListener?.()
+    removeNativeCloseRequestListener = null
 })
 
 /**
